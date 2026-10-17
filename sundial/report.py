@@ -138,6 +138,66 @@ def _sun_viz(ev: "Evidence") -> str:
     return "".join(parts)
 
 
+def _frame_viz(ev: "Evidence") -> str:
+    """Annotated frame thumbnail — the image plus the shadow vector the
+    measurement came from, embedded as a base64 JPEG inside one SVG.
+
+    For 'clock' cards the top strip (where overlays live) is shown instead.
+    Silent "" on any failure — imagery is a nice-to-have, never fatal.
+    """
+    data = getattr(ev, "data", None)
+    if not isinstance(data, dict):
+        return ""
+    frame = data.get("frame") or (ev.frames[0] if getattr(ev, "frames", None) else None)
+    if not frame or not os.path.isfile(str(frame)):
+        return ""
+    try:
+        import base64
+        import io
+        from PIL import Image
+
+        img = Image.open(str(frame)).convert("RGB")
+        W0, H0 = img.size
+        strip_only = ev.type == "clock"
+        if strip_only:
+            img = img.crop((0, 0, W0, max(1, round(H0 * 0.35))))
+            W0, H0 = img.size
+        scale = min(1.0, 620.0 / W0)
+        w, h = max(1, round(W0 * scale)), max(1, round(H0 * scale))
+        img = img.resize((w, h))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=62)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return ""
+
+    ov = ""
+    obs = data.get("observation")
+    if isinstance(obs, dict) and not strip_only:
+        try:
+            bx, by = float(obs["base_point"][0]) * scale, float(obs["base_point"][1]) * scale
+            tx, ty = float(obs["shadow_tip"][0]) * scale, float(obs["shadow_tip"][1]) * scale
+            vec = data.get("vector") or {}
+            ln = vec.get("length_px")
+            label = f"{ln:.0f}px" if isinstance(ln, (int, float)) else "shadow"
+            ov = (
+                f'<line x1="{bx:.0f}" y1="{by:.0f}" x2="{tx:.0f}" y2="{ty:.0f}" '
+                f'stroke="#facc15" stroke-width="2.5" opacity="0.95"/>'
+                f'<circle cx="{bx:.0f}" cy="{by:.0f}" r="5" fill="#facc15"/>'
+                f'<circle cx="{tx:.0f}" cy="{ty:.0f}" r="5" fill="none" stroke="#facc15" stroke-width="2"/>'
+                f'<text x="{min(tx + 8, w - 60):.0f}" y="{max(ty - 8, 12):.0f}" '
+                f'class="svlabel" fill="#fde68a">{_e(label)}</text>'
+            )
+        except (KeyError, TypeError, ValueError, IndexError):
+            ov = ""
+    return (
+        f'<svg class="frameviz" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" '
+        f'xmlns:xlink="http://www.w3.org/1999/xlink">'
+        f'<image href="data:image/jpeg;base64,{b64}" xlink:href="data:image/jpeg;base64,{b64}" '
+        f'x="0" y="0" width="{w}" height="{h}"/>{ov}</svg>'
+    )
+
+
 def _ev_card(ev: "Evidence", idx: int) -> str:
     cv = _cv(ev.verdict)
     fg, bg, border = _PILL[cv]
@@ -164,7 +224,7 @@ def _ev_card(ev: "Evidence", idx: int) -> str:
         f'<span class="econfnum">{pct:.0f}%</span></div>'
         f'<div class="confbar"><div class="conffill" data-w="{pct:.0f}" '
         f'style="background:{fg};width:{pct:.0f}%"></div></div>'
-        f'<div class="evsum">{_e(ev.summary)}</div>{frames}</div>'
+        f'<div class="evsum">{_e(ev.summary)}</div>{frames}{_frame_viz(ev)}</div>'
     )
 
 
@@ -307,6 +367,8 @@ h1 {{ font-size:12px; text-transform:uppercase; letter-spacing:.22em; color:#647
 .signalmix b {{ color:#94a3b8; margin-right:4px; }}
 .sunrow {{ display:flex; justify-content:center; padding:10px 16px 14px; }}
 .sunviz {{ width:100%; max-width:460px; }}
+.frameviz {{ width:100%; max-width:620px; border-radius:8px; margin-top:10px;
+            border:1px solid rgba(148,163,184,.14); display:block; }}
 .svlabel {{ font:11px ui-monospace,monospace; fill:#94a3b8; }}
 .narrative {{ font-size:14px; line-height:1.65; color:#e2e8f0;
              background:rgba(30,41,59,.35); border-left:3px solid var(--accent);

@@ -43,96 +43,101 @@ _JOBS: dict[str, dict] = {}
 _CSS = """
 *{box-sizing:border-box}
 body{font-family:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
- background:#070b14;color:#cbd5e1;margin:0;min-height:100vh;
- background-image:radial-gradient(rgba(148,163,184,.13) 1px,transparent 1px);
- background-size:26px 26px;animation:drift 60s linear infinite}
-@keyframes drift{to{background-position:520px 260px}}
+ background:#000;color:#e5e5e5;margin:0;min-height:100vh;
+ display:flex;flex-direction:column}
 #bg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.wrap{max-width:560px;margin:0 auto;padding:56px 18px 60px;
- position:relative;z-index:1}
-.brand{font-size:12px;letter-spacing:.35em;color:#64748b;text-transform:uppercase;
- margin-bottom:26px;display:flex;align-items:center;gap:10px}
-.brand::before{content:"";width:26px;height:1px;background:#334155}
-.card{border-radius:18px;padding:32px 36px;background:rgba(15,23,42,.8);
- border:1px solid rgba(148,163,184,.14);
- backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
- box-shadow:0 24px 70px rgba(0,0,0,.5),0 0 0 1px rgba(2,6,23,.6) inset}
-h1{font-size:21px;color:#e2e8f0;margin:0 0 8px;letter-spacing:.02em}
-.sub{font-size:12.5px;color:#94a3b8;line-height:1.6;margin:0}
-label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.15em;
- color:#64748b;margin:20px 0 7px}
-input[type=text]{width:100%;background:rgba(2,6,23,.6);
- border:1px solid rgba(148,163,184,.18);border-radius:10px;padding:11px 13px;
- color:#e2e8f0;font:inherit;font-size:13.5px}
-input[type=text]:focus{outline:none;border-color:rgba(250,204,21,.45)}
-.filewrap{border:1px dashed rgba(148,163,184,.3);border-radius:12px;
- padding:16px;background:rgba(2,6,23,.35)}
-input[type=file]{width:100%;color:#94a3b8;font:inherit;font-size:12.5px}
-input[type=file]::file-selector-button{margin-right:12px;padding:7px 14px;
- border-radius:8px;border:1px solid rgba(250,204,21,.35);
- background:rgba(250,204,21,.08);color:#fde68a;font:inherit;font-size:12px;
- cursor:pointer}
-.hint{font-size:11px;color:#475569;margin-top:6px}
-button{width:100%;margin-top:28px;padding:13px;border-radius:10px;
- border:1px solid rgba(250,204,21,.4);background:rgba(250,204,21,.1);
- color:#fde68a;font:inherit;font-weight:700;font-size:13px;
- letter-spacing:.14em;text-transform:uppercase;cursor:pointer;
- transition:background .2s}
-button:hover{background:rgba(250,204,21,.18)}
-button:disabled{opacity:.55;cursor:wait}
-a{color:#7dd3fc}
-.prog{display:none;margin-top:28px;text-align:center}
-.spin{width:46px;height:46px;border-radius:50%;margin:0 auto 14px;
- border:3px solid rgba(148,163,184,.15);border-top-color:#facc15;
- animation:rot .9s linear infinite}
+.wrap{flex:1;width:100%;max-width:460px;margin:0 auto;
+ padding:0 24px;display:flex;flex-direction:column;justify-content:center;
+ position:relative;z-index:1;min-height:100vh}
+.brand{font-size:13px;letter-spacing:.55em;color:#fff;text-transform:uppercase;
+ margin-bottom:64px}
+.brand span{display:block;font-size:10px;letter-spacing:.3em;color:#666;
+ margin-top:10px}
+.card{position:relative}
+h1{display:none}
+.sub{display:none}
+label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.25em;
+ color:#555;margin:0 0 8px}
+input[type=text]{width:100%;background:transparent;border:none;
+ border-bottom:1px solid #2a2a2a;padding:12px 0;color:#fff;font:inherit;
+ font-size:15px;transition:border-color .25s}
+input[type=text]:focus{outline:none;border-bottom-color:#fff}
+input[type=text]::placeholder{color:#3a3a3a}
+.field{margin-bottom:34px}
+.filewrap{border:1px dashed #2e2e2e;border-radius:2px;padding:26px 20px;
+ transition:border-color .25s;cursor:pointer;text-align:center;
+ margin-bottom:34px}
+.filewrap:hover,.filewrap.over{border-color:#888}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0;
+ overflow:hidden;clip:rect(0 0 0 0)}
+.flabel{font-size:12px;color:#777;letter-spacing:.05em}
+.flabel b{color:#fff;font-weight:400}
+.fname{font-size:11px;color:#999;margin-top:8px;word-break:break-all}
+button{display:block;width:100%;padding:15px;border:none;background:#fff;
+ color:#000;font:inherit;font-weight:700;font-size:11px;
+ letter-spacing:.3em;text-transform:uppercase;cursor:pointer;
+ transition:opacity .2s}
+button:hover{opacity:.82}
+button:disabled{opacity:.35;cursor:wait}
+a{color:#999}
+.prog{display:none;margin-top:40px;text-align:center}
+.spin{width:34px;height:34px;border-radius:50%;margin:0 auto 18px;
+ border:2px solid #1c1c1c;border-top-color:#fff;
+ animation:rot .8s linear infinite}
 @keyframes rot{to{transform:rotate(360deg)}}
-.ptxt{font-size:12.5px;color:#94a3b8}
-.ptxt b{color:#e2e8f0;font-variant-numeric:tabular-nums}
-.step{font-size:11px;color:#64748b;margin-top:6px}
-.err{color:#f87171;font-size:12.5px;margin-top:14px;min-height:1em}
-footer{text-align:center;color:#334155;font-size:11px;letter-spacing:.2em;
- text-transform:uppercase;margin-top:34px}
+.ptxt{font-size:11px;color:#888;letter-spacing:.1em}
+.ptxt b{color:#fff;font-variant-numeric:tabular-nums;font-weight:400}
+.step{font-size:10px;color:#4a4a4a;margin-top:8px;letter-spacing:.15em}
+.err{color:#b66;font-size:12px;margin-top:16px;min-height:1em}
+.adv{margin-bottom:30px}
+.adv summary{font-size:10px;text-transform:uppercase;letter-spacing:.25em;
+ color:#444;cursor:pointer;list-style:none;transition:color .2s}
+.adv summary:hover{color:#999}
+.adv summary::before{content:"+ ";color:#444}
+.adv[open] summary::before{content:"– "}
+footer{position:relative;z-index:1;text-align:center;color:#333;
+ font-size:9px;letter-spacing:.4em;text-transform:uppercase;
+ padding:20px 0 26px}
 """
 
 _UPLOAD_BODY = """
 <div class="card">
-  <h1>Verify a clip&rsquo;s claim</h1>
-  <p class="sub">Drop a video <em>or a still</em> and state when &amp; where
-  it was supposedly filmed. Sundial checks shadows, OSINT scene cues, weather
-  records, sign text and sun position, then returns a verdict card.</p>
   <form id="vf" method="post" action="/verify" enctype="multipart/form-data">
-    <label for="video">clip or image</label>
-    <div class="filewrap">
+    <label for="video">media</label>
+    <div class="filewrap" id="filewrap">
       <input type="file" id="video" name="video"
              accept="video/*,image/*" required>
+      <div class="flabel" id="flabel"><b>drop a clip or still</b>
+        &mdash; or click</div>
+      <div class="fname" id="fname"></div>
     </div>
-    <div class="hint">mp4 / mov / webm / jpg / png &mdash; a short clip or
-    a single still</div>
 
-    <label for="claim">claim <span style="color:#334155">(plain words)</span></label>
-    <input type="text" id="claim" name="claim"
-           placeholder="filmed Tuesday 3pm in London" autocomplete="off">
-    <div class="hint">or fill the explicit fields below &mdash; they win
-    if both are set</div>
+    <div class="field">
+      <label for="claim">claim</label>
+      <input type="text" id="claim" name="claim"
+             placeholder="filmed tuesday 3pm in london" autocomplete="off">
+    </div>
 
-    <label for="claim_time">claimed time</label>
-    <input type="text" id="claim_time" name="claim_time"
-           placeholder="2025-10-17T15:00" autocomplete="off">
-    <div class="hint">ISO 8601, local to the claimed place</div>
+    <details class="adv" id="adv">
+      <summary>advanced</summary>
+      <div class="field" style="margin-top:22px">
+        <label for="claim_time">claimed time</label>
+        <input type="text" id="claim_time" name="claim_time"
+               placeholder="2025-10-17T15:00" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="claim_place">claimed place</label>
+        <input type="text" id="claim_place" name="claim_place"
+               placeholder="london or 51.50,-0.12" autocomplete="off">
+      </div>
+    </details>
 
-    <label for="claim_place">claimed place</label>
-    <input type="text" id="claim_place" name="claim_place"
-           placeholder="London &nbsp;&middot;&nbsp; or &nbsp;51.50,-0.12"
-           autocomplete="off">
-
-    <button id="go" type="submit">Run verification</button>
+    <button id="go" type="submit">verify</button>
 
     <div class="prog" id="prog">
       <div class="spin"></div>
-      <div class="ptxt">analyzing clip &mdash; <b id="elapsed">0:00</b></div>
-      <div class="step" id="step">extracting frames&hellip;</div>
-      <div class="hint" style="text-align:center">a full run takes 2&ndash;4
-      minutes &mdash; keep this tab open</div>
+      <div class="ptxt"><b id="elapsed">0:00</b></div>
+      <div class="step" id="step"></div>
     </div>
     <div class="err" id="err"></div>
   </form>
@@ -142,7 +147,32 @@ _UPLOAD_BODY = """
   var form = document.getElementById("vf"), btn = document.getElementById("go"),
       prog = document.getElementById("prog"), err = document.getElementById("err"),
       elapsed = document.getElementById("elapsed"),
-      step = document.getElementById("step");
+      step = document.getElementById("step"),
+      wrap = document.getElementById("filewrap"),
+      fi = document.getElementById("video"),
+      flabel = document.getElementById("flabel"),
+      fname = document.getElementById("fname");
+  wrap.addEventListener("click", function() { fi.click(); });
+  fi.addEventListener("change", function() {
+    fname.textContent = fi.files && fi.files.length ? fi.files[0].name : "";
+    flabel.style.display = fi.files && fi.files.length ? "none" : "block";
+  });
+  ["dragover","dragenter"].forEach(function(ev) {
+    wrap.addEventListener(ev, function(e) {
+      e.preventDefault(); wrap.classList.add("over");
+    });
+  });
+  ["dragleave","drop"].forEach(function(ev) {
+    wrap.addEventListener(ev, function(e) {
+      e.preventDefault(); wrap.classList.remove("over");
+    });
+  });
+  wrap.addEventListener("drop", function(e) {
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      fi.files = e.dataTransfer.files;
+      fi.dispatchEvent(new Event("change"));
+    }
+  });
   var STEPS = ["extracting frames", "asking the VLM about shadows & sign text",
                "cataloguing OSINT scene cues", "scoring candidate countries",
                "reading burned-in clock overlays", "geocoding sign text",
@@ -151,9 +181,8 @@ _UPLOAD_BODY = """
   form.addEventListener("submit", function(e) {
     e.preventDefault();
     err.textContent = "";
-    var fi = document.getElementById("video");
     if (!fi.files || !fi.files.length) {
-      err.textContent = "choose a clip first";
+      err.textContent = "choose a file first";
       return;
     }
     btn.disabled = true;
@@ -250,11 +279,11 @@ _WAVES_INIT = """
 (function() {
   if (!window.SlicedWaves) return;
   var waves = window.SlicedWaves.init(document.getElementById("bg"), {
-    color1: "#475569", color2: "#facc15", color3: "#38bdf8",
-    ribbons: 3, spacing: 30, perspective: 0.5, curve: 0.55,
-    blur: 0.7, glow: 1.1, brightness: 0.9, position: 0.8,
-    amplitude: 0.11, frequency: 0.6, spread: 0.11,
-    grain: 0.06, fade: 0.35, opacity: 0.85, mouseInteraction: true
+    color1: "#2a2a2a", color2: "#e5e5e5", color3: "#6b6b6b",
+    ribbons: 3, spacing: 34, perspective: 0.5, curve: 0.55,
+    blur: 0.8, glow: 0.9, brightness: 0.55, position: 0.82,
+    amplitude: 0.1, frequency: 0.6, spread: 0.1,
+    grain: 0.05, fade: 0.4, opacity: 0.7, mouseInteraction: true
   });
   if (!waves) document.getElementById("bg").style.display = "none";
 })();
@@ -270,9 +299,8 @@ def _page(title: str, body: str) -> bytes:
         f"<title>Sundial — {_e(title)}</title>"
         f'<style>{_CSS}</style></head><body>'
         '<div id="bg"></div><div class="wrap">'
-        '<div class="brand">Sundial &mdash; video provenance verification</div>'
+        '<div class="brand">sundial<span>video provenance</span></div>'
         f"{body}"
-        "<footer>Sundial &middot; VAST Builders Challenge</footer>"
         "</div>"
         f"{_WAVES_INIT}"
         "</body></html>"

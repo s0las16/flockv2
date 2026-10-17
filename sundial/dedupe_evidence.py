@@ -113,9 +113,10 @@ def geo_rollup(evs: list[Evidence]) -> Evidence | None:
     ClaimVerdict, Evidence = _schema()
     stats = summarize_geo_family(geo)
     summary = (
-        f"geo signals: {stats['n_supports']} support, "
-        f"{stats['n_contradicts']} contradict, "
-        f"{stats['n_inconclusive']} inconclusive across {len(geo)} checks"
+        f"location clues: {stats['n_supports']} point to the claim, "
+        f"{stats['n_contradicts']} against it, "
+        f"{stats['n_inconclusive']} gave no clear answer "
+        f"across {len(geo)} checks"
     )
     return Evidence(
         type="geo_rollup",
@@ -156,8 +157,8 @@ def compact_for_display(evs: list[Evidence]) -> list[Evidence]:
         digest = copy.copy(collapsed[0])
         digest.type = "geo_rollup"
         digest.summary = (
-            f"geo signals: {n} inconclusive check{'s' if n != 1 else ''} "
-            f"collapsed for display ({', '.join(stats['types'])})"
+            f"{n} location check{'s' if n != 1 else ''} gave no clear "
+            f"answer — grouped here to keep the report readable"
         )
         digest.confidence = max((_conf(e) for e in collapsed), default=0.0)
         digest.data = {"compact": True, "collapsed": n,

@@ -12,7 +12,13 @@ ground (a person, pole, signpost, tree, vehicle, etc.).
 
 Return STRICT JSON with this exact schema — no prose, no markdown fences:
 
-{"object_class": "<object type>", "base_point": [x, y], "shadow_tip": [x, y], "confidence": <0.0-1.0>}
+{"object_class": "<object type>", "base_point": [x, y], "shadow_tip": [x, y], "object_top": [x, y], "camera_tilt_deg": <number>, "confidence": <0.0-1.0>}
+
+- "object_top": pixel coordinates of the object's TOP (head, roofline, tip).
+- "camera_tilt_deg": estimated camera downward tilt in degrees — 0 means the
+  camera looks horizontally (horizon high in frame), 90 means straight down.
+  Estimate from the horizon position and ground perspective; typical values
+  are 0-50.
 
 - "base_point": pixel coordinates of where the object meets the ground.
 - "shadow_tip": pixel coordinates of the furthest visible tip of its cast shadow.
@@ -30,7 +36,11 @@ billboards, transit signs. Also assess the driving environment.
 
 Return STRICT JSON with this exact schema — no prose, no markdown fences:
 
-{"texts": ["<verbatim string>", ...], "driving_side": "left"|"right"|"unknown", "sign_language": "<primary signage language or 'unknown'>", "road_markings": ["<short description>", ...]}
+{"texts": ["<verbatim string>", ...], "overlay_timestamps": ["<verbatim burned-in date/time text>", ...], "driving_side": "left"|"right"|"unknown", "sign_language": "<primary signage language or 'unknown'>", "road_markings": ["<short description>", ...]}
+
+- "overlay_timestamps": any date/time burned into the image by the camera
+  (corners/edges, e.g. "17.10.2026 08:00:02", "10/17 08:00"). Verbatim —
+  include the full string as printed. [] if none.
 
 - "texts": ONLY strings you can literally read character-by-character in the
   image, transcribed verbatim. Do NOT infer, translate, or guess place names.

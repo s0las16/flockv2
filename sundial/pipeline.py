@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 from .adjudicate import adjudicate
@@ -70,7 +71,20 @@ def _sun_elevation_deg(shadow_obs: dict, detections: list[dict]) -> float | None
                 best, best_h = d, h
     if best is None or best_h <= 0:
         return None
-    return math.degrees(math.atan2(best_h, vec["length_px"]))
+    # Elevated cameras foreshorten the ground plane: distances along the
+    # image vertical compress by sin(tilt). Expand dy before measuring the
+    # shadow; horizontal stays put. 0.3 floor avoids blowup near-horizontal.
+    tilt = shadow_obs.get("camera_tilt_deg")
+    try:
+        tilt = float(tilt) if tilt is not None else None
+    except (TypeError, ValueError):
+        tilt = None
+    if tilt is not None and tilt > 15:
+        dy = vec["dy"] / max(math.sin(math.radians(tilt)), 0.3)
+        length = math.hypot(vec["dx"], dy)
+    else:
+        length = vec["length_px"]
+    return math.degrees(math.atan2(best_h, length))
 
 
 def _norm_conditions(c: dict) -> dict:
@@ -92,6 +106,96 @@ def _norm_conditions(c: dict) -> dict:
         elif "dry" in s:
             out["wet_ground"] = False
     return out
+
+
+_TS_PATTERNS = [
+    # 17.10.2026 08:00:02 / 17-10-2026 08:00
+    re.compile(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})\D{0,4}(\d{1,2}):(\d{2})(?::(\d{2}))?"),
+    # 2026-10-17 08:00:02 / 2026/10/17T08:00
+    re.compile(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})\D{0,4}(\d{1,2}):(\d{2})(?::(\d{2}))?"),
+]
+# Bare clock like "08:00" — usable for time-of-day only.
+_TS_TIME_ONLY = re.compile(r"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b")
+
+
+def _parse_overlay_time(s: str) -> tuple[datetime | None, str | None]:
+    """-> (naive local datetime, granularity) for a burned-in timestamp string.
+
+    granularity is "datetime" (full date+time) or "time" (clock only).
+    """
+    m = _TS_PATTERNS[0].search(s)
+    if m:
+        d, mo, y, hh, mm, ss = m.groups()
+        return datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss or 0)), "datetime"
+    m = _TS_PATTERNS[1].search(s)
+    if m:
+        y, mo, d, hh, mm, ss = m.groups()
+        return datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss or 0)), "datetime"
+    m = _TS_TIME_ONLY.search(s)
+    if m:
+        hh, mm, ss = m.groups()
+        return datetime(2000, 1, 1, int(hh), int(mm), int(ss or 0)), "time"
+    return None, None
+
+
+def _clock_evidence(overlays: list[str], claim_time_iso: str | None,
+                    frames: list[str]) -> "Evidence":
+    """Compare burned-in camera timestamps against the claimed local time.
+
+    Claim and overlay are both local-to-place times, so compare directly —
+    no timezone math. Needs the same overlay string in >=2 frames (same
+    consensus rule as sign text; single frames can be misread).
+    """
+    from collections import Counter
+
+    clean = [t.strip() for t in overlays if t and t.strip()]
+    if not claim_time_iso or not clean:
+        return Evidence(
+            type="clock",
+            summary="no readable burned-in timestamp in frames" if not clean
+                    else "no claimed time to check overlay against",
+            verdict=ClaimVerdict.INCONCLUSIVE,
+            confidence=0.0,
+            data={"overlays": clean},
+        )
+    counts = Counter(clean)
+    stable = [t for t, n in counts.items() if n >= 2]
+    parsed = []
+    for t in stable or clean:
+        dt, gran = _parse_overlay_time(t)
+        if dt:
+            parsed.append((t, dt, gran))
+    if not parsed:
+        return Evidence(
+            type="clock",
+            summary=f"overlay text found but unparseable: {clean[:3]}",
+            verdict=ClaimVerdict.INCONCLUSIVE,
+            confidence=0.2,
+            data={"overlays": clean},
+        )
+    # Majority timestamp wins — all frames of a real clip share one clock.
+    raw, dt, gran = max(parsed, key=lambda p: counts[p[0]])
+    claim_dt = datetime.fromisoformat(claim_time_iso).replace(tzinfo=None)
+    if gran == "datetime":
+        delta_min = abs((dt - claim_dt).total_seconds()) / 60.0
+    else:  # time-of-day only
+        delta_min = abs((dt - claim_dt.replace(year=2000, month=1, day=1))
+                        .total_seconds()) / 60.0
+    if delta_min <= 45:
+        verdict, conf = ClaimVerdict.SUPPORTS, 0.85
+        note = f"camera overlay reads {raw} — matches the claimed time"
+    elif delta_min >= 90:
+        verdict, conf = ClaimVerdict.CONTRADICTS, 0.9
+        note = (f"camera overlay reads {raw} but claim is "
+                f"{claim_dt.isoformat()} — {delta_min:.0f} min off")
+    else:
+        verdict, conf = ClaimVerdict.INCONCLUSIVE, 0.5
+        note = f"camera overlay reads {raw}; {delta_min:.0f} min from claim"
+    return Evidence(
+        type="clock", summary=note, verdict=verdict, confidence=conf,
+        data={"overlays": clean, "parsed": raw, "delta_minutes": round(delta_min, 1)},
+        frames=frames,
+    )
 
 
 def _claimed_utc(lat: float, lon: float, claim_time_iso: str) -> tuple[str, str]:
@@ -152,6 +256,8 @@ def run(
 
     # --- 3. VLM observations (shadows, text, conditions) ---------------------
     texts: list[str] = []
+    overlays: list[str] = []
+    overlay_frames: list[str] = []
     observations: dict = {}
     conditions_list: list[dict] = []
     sun_elev: float | None = None
@@ -180,6 +286,9 @@ def run(
                 txt = cosmos.read_scene_text(f)
                 if txt:
                     texts.extend(txt.get("texts") or [])
+                    if txt.get("overlay_timestamps"):
+                        overlays.extend(txt["overlay_timestamps"])
+                        overlay_frames.append(f)
                     for k in ("driving_side", "sign_language", "plate_style"):
                         if not observations.get(k) and txt.get(k):
                             observations[k] = txt[k]
@@ -226,6 +335,12 @@ def run(
         pack.add(ev)
     except Exception as e:
         _note(pack, "geo", e)
+
+    # --- 4b. burned-in clock overlay vs claim ---------------------------------
+    try:
+        pack.add(_clock_evidence(overlays, claim_time, overlay_frames))
+    except Exception as e:
+        _note(pack, "clock", e)
 
     # --- 5. weather + solar (need coords + claimed time) ----------------------
     if lat is not None and claim_time:

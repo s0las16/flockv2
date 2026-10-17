@@ -76,7 +76,7 @@ def test_fallback_empty_pack():
     a = _fallback(_pack())
     assert a.verdict == Verdict.INSUFFICIENT
     assert a.confidence <= 0.5
-    assert "none" in a.narrative
+    assert "no signals" in a.narrative
 
 
 def test_fallback_inconclusive_only():
@@ -91,7 +91,7 @@ def test_fallback_narrative_counts():
         _ev(ClaimVerdict.INCONCLUSIVE, 0.5, "geo"),
     )
     a = _fallback(pack)
-    assert "1 evidence item(s) support, 1 contradict, 1 inconclusive" in a.narrative
+    assert "1 point to the claim being true, 1 point against it" in a.narrative
     assert "geo" in a.narrative and "solar" in a.narrative and "weather" in a.narrative
 
 

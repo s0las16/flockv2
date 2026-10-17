@@ -209,9 +209,21 @@ def run(
         ))
 
     # --- 4. geolocation ------------------------------------------------------
+    # Hallucination guard: only geocode strings seen in >=2 frames — invented
+    # sign text doesn't repeat across frames, real text does.
     try:
+        from collections import Counter
         from . import geo
-        pack.add(geo.geo_evidence(claim_place, texts, observations))
+        counts = Counter(t.strip().lower() for t in texts if t and t.strip())
+        consensus = [t for t in texts
+                     if t and counts[t.strip().lower()] >= 2]
+        seen: set[str] = set()
+        stable_texts = [t for t in consensus
+                        if not (t.strip().lower() in seen or seen.add(t.strip().lower()))]
+        ev = geo.geo_evidence(claim_place, stable_texts, observations)
+        if len(texts) != len(stable_texts):
+            ev.data["texts_filtered"] = len(texts) - len(stable_texts)
+        pack.add(ev)
     except Exception as e:
         _note(pack, "geo", e)
 

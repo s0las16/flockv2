@@ -32,7 +32,10 @@ Return STRICT JSON with this exact schema — no prose, no markdown fences:
 
 {"texts": ["<verbatim string>", ...], "driving_side": "left"|"right"|"unknown", "sign_language": "<primary signage language or 'unknown'>", "road_markings": ["<short description>", ...]}
 
-- "texts": every legible string, transcribed verbatim (keep original script).
+- "texts": ONLY strings you can literally read character-by-character in the
+  image, transcribed verbatim. Do NOT infer, translate, or guess place names.
+  If a sign is blurry, angled, or too small to read with certainty, omit it.
+  An empty list is a perfectly good answer — never invent text.
 - "driving_side": infer from lane position, markings and vehicle orientation;
   use "unknown" if there is no road or it is ambiguous.
 - "road_markings": e.g. "zebra crossing", "double yellow line", "bike lane",

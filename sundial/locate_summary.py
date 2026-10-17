@@ -391,11 +391,12 @@ def _norm_rank_row(r) -> dict | None:
     cc = score = hits = None
     if isinstance(r, dict):
         cc = _norm_cc(r)
-        for k in ("score", "confidence", "weight", "rank_score"):
+        for k in ("score", "confidence", "weight", "rank_score", "prob"):
             if _num(r.get(k)) is not None:
                 score = _num(r.get(k))
                 break
-        h = r.get("hits", r.get("n_hits", r.get("signals", r.get("reasons"))))
+        h = r.get("hits", r.get("n_hits", r.get("signals", r.get("reasons",
+                  r.get("agreeing_modalities")))))
         hits = len(h) if isinstance(h, (list, tuple, set, dict)) else _num(h)
     elif isinstance(r, (list, tuple)) and r:
         cc = _norm_cc(r[0])
@@ -410,7 +411,7 @@ def _norm_rank_row(r) -> dict | None:
 def _ranked_rows(evs) -> list:
     """First non-empty ranked list across the pack, normalized and
     score-sorted. Prefers osint-flavoured cards but accepts any card whose
-    data carries a ranking under a known key."""
+    data carries a ranking under a known key. Skips flat 0-cue priors."""
     found = []
     for t, d in evs:
         for key in ("ranked", "candidates", "ranking", "top3"):
@@ -420,9 +421,17 @@ def _ranked_rows(evs) -> list:
             if not isinstance(raw, (list, tuple)) or not raw:
                 continue
             rows = [r for r in (_norm_rank_row(x) for x in raw) if r]
-            if rows:
-                pri = 0 if "osint" in t or "geo" in t else 1
-                found.append((pri, -len(rows), rows))
+            if not rows:
+                continue
+            # Ignore a uniform 0.5 prior where zero cues fired (match_score
+            # emits every country at 0.50 with hits=[] when nothing matched).
+            if (len(rows) >= 3
+                    and all(r["hits_n"] == 0 and abs(r["score"] - 0.5) < 1e-6
+                            for r in rows)):
+                continue
+            pri = (0 if "matrix" in t or "osint" in t or "geo" in t else 1,
+                   0 if key in ("ranked", "ranking", "top3") else 1)
+            found.append((pri, -len(rows), rows))
     if not found:
         return []
     found.sort(key=lambda f: (f[0], f[1]))
@@ -554,6 +563,11 @@ def _geo_markers(evs) -> list:
 
     for t, d in evs:
         tl = t.lower()
+        if tl in ("geo", "geo-resolve", "claim_resolver", "osm_context",
+                  "geo_pred", "geocell_pred", "geo_ensemble"):
+            # Claim-anchor lookup cards just echo the claimed coordinates;
+            # region-estimate cards already feed the prediction pin.
+            continue
         if "geoclip" in tl or tl == "geo_clip":  # model card: the best
             # guess is already the pred pin — show the runner-ups instead
             for c in (d.get("candidates") or [])[1:]:
@@ -695,7 +709,7 @@ def _model_pred(evs) -> "dict | None":
         if not isinstance(d, dict):
             continue
         tl = str(t).lower()
-        if "geoclip" not in tl and tl != "geo_clip":
+        if "geoclip" not in tl and tl not in ("geo_clip", "geo_ensemble"):
             continue
         pt = _latlon(d.get("lat"), d.get("lon"))
         if not pt:
@@ -704,8 +718,13 @@ def _model_pred(evs) -> "dict | None":
             r = float(d.get("r_km") or d.get("radius_km") or 200.0)
         except (TypeError, ValueError):
             r = 200.0
-        return {"lat": pt[0], "lon": pt[1],
-                "radius_km": int(max(50.0, min(2000.0, r)))}
+        out = {"lat": pt[0], "lon": pt[1],
+               "radius_km": int(max(50.0, min(2000.0, r)))}
+        if isinstance(d.get("label"), str) and d["label"].strip():
+            out["label"] = d["label"].strip()
+        if isinstance(d.get("cc"), str) and d["cc"].strip():
+            out["cc"] = d["cc"].strip().upper()
+        return out
     return None
 
 
@@ -794,7 +813,8 @@ def summarize(evidence_list: list, anchor: tuple | None,
             corroborated = bool(anch_cc and anch_cc == rows[0]["cc"])
         if named:  # an identified landmark is a far better pin than a
             # country-centroid blend — 25 km ring says "in/around here"
-            pred = {"lat": named["lat"], "lon": named["lon"], "r_km": 25.0}
+            pred = {"lat": named["lat"], "lon": named["lon"],
+                    "r_km": 25.0, "radius_km": 25}
             summary["best_name"] = (
                 f"{named['name']}, {_cc_name(named['cc']) or named['cc']}"
                 if named.get("cc") else named["name"])
@@ -802,18 +822,21 @@ def summarize(evidence_list: list, anchor: tuple | None,
                 summary["best_cc"] = named["cc"]
         elif corroborated:
             pred = {"lat": summary["anchor"]["lat"],
-                    "lon": summary["anchor"]["lon"], "r_km": 60.0}
+                    "lon": summary["anchor"]["lon"],
+                    "r_km": 60.0, "radius_km": 60}
             summary["best_name"] = claim_label
         elif gclip:  # no landmark, claim not corroborated — the trained
             # model's own coordinate estimate beats the country blend;
             # in the no-claim flow it IS the answer
-            pred = gclip
-            mcc = _cc_of_point(gclip["lat"], gclip["lon"])
+            pred = {"lat": gclip["lat"], "lon": gclip["lon"],
+                    "r_km": float(gclip["radius_km"]),
+                    "radius_km": gclip["radius_km"]}
+            mcc = gclip.get("cc") or _cc_of_point(gclip["lat"], gclip["lon"])
             if mcc:
                 summary["best_cc"] = mcc
-                summary["best_name"] = _cc_name(mcc) or mcc
+                summary["best_name"] = gclip.get("label") or _cc_name(mcc) or mcc
             else:
-                summary["best_name"] = "model estimate"
+                summary["best_name"] = gclip.get("label") or "model estimate"
         if pred:
             summary["predicted"] = pred
             label = (f"predicted: {summary['best_name']}"
@@ -936,12 +959,12 @@ def _self_test() -> int:
           f"-> {[r['cc'] for r in s['ranked']]}")
     check("ranked row shape", s["ranked"][0] == {
         "cc": "DE", "name": "Germany", "score": 0.72, "hits_n": 2})
-    check("best_cc/name", s["best_cc"] == "DE" and s["best_name"] == "Germany")
+    check("best_cc/name", s["best_cc"] == "DE" and s["best_name"] == "Brandenburg Gate")
     p = s["predicted"]
     check("predicted set", isinstance(p, dict)
-          and -90 <= p["lat"] <= 90 and p["radius_km"] >= 300, f"-> {p}")
+          and -90 <= p["lat"] <= 90 and p["radius_km"] >= 25, f"-> {p}")
     txt = panel_text(s)
-    check("panel text", txt.startswith("most likely Germany (DE)"),
+    check("panel text", txt.startswith("most likely Brandenburg Gate (DE)"),
           f"-> {txt!r}")
     check("next ccs in panel", "next:" in txt and "FR" in txt)
     check("json-safe", bool(json.dumps(s)))

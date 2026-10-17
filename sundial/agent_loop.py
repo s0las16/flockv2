@@ -290,14 +290,15 @@ def _plan_rules(context_str: Any, allowed: set) -> list[dict]:
                 need_coords("for wiki check")
         if _TIME_KW_RE.search(ql):
             if coords:
-                add("weather", {"lat": claim["lat"], "lon": claim["lon"],
-                                "time_iso": claim["time_iso"]}, why)
-                add("sun_at", {"lat": claim["lat"], "lon": claim["lon"],
-                               "time_iso": claim["time_iso"]}, why)
+                if claim["time_iso"]:
+                    add("weather", {"lat": claim["lat"], "lon": claim["lon"],
+                                    "time_iso": claim["time_iso"]}, why)
+                    add("sun_at", {"lat": claim["lat"], "lon": claim["lon"],
+                                   "time_iso": claim["time_iso"]}, why)
                 if _TZ_KW_RE.search(ql):
                     add("timezone_at",
                         {"lat": claim["lat"], "lon": claim["lon"]}, why)
-            else:
+            elif claim["time_iso"]:
                 need_coords("for weather/sun check")
         if _CC_KW_RE.search(ql):
             if coords:

@@ -301,8 +301,9 @@ def embed_image(path):
     frame file, or None when unavailable/unreadable. Model loads lazily on
     first use and is cached for the process."""
     try:
-        if not path or not isinstance(path, str) or not available():
+        if not path or not isinstance(path, (str, os.PathLike)) or not available():
             return None
+        path = os.fspath(path)
         stack = _clip_stack()
         if stack is None:
             return None
@@ -330,7 +331,8 @@ def geo_prior(frame_paths, top_k: int = 5) -> list[dict]:
     try:
         if not available():
             return []
-        paths = [p for p in (frame_paths or []) if isinstance(p, str) and p]
+        paths = [os.fspath(p) for p in (frame_paths or [])
+                 if isinstance(p, (str, os.PathLike)) and str(p)]
         if not paths:
             return []
         import numpy as np

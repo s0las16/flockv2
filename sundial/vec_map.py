@@ -221,9 +221,11 @@ def _circle(s: dict) -> dict | None:
 
 def _markers(s: dict) -> list[dict]:
     """Normalize marker rows for svg_map; kinds pass through, labels are
-    pre-escaped: claim -> the claim_place text, pred -> 'est.'."""
+    pre-escaped: claim -> the claim_place text, pred -> 'est.' (unless it
+    coincides with the claim anchor, where a second text label is redundant)."""
     out: list[dict] = []
     claim = _claim_label(s)
+    anch = _anchor_pt(s)
     seq = s.get("markers")
     for m in (seq if isinstance(seq, (list, tuple)) else [])[: _MAX_MARKERS]:
         try:
@@ -238,7 +240,10 @@ def _markers(s: dict) -> list[dict]:
             if kind == "claim" and claim:
                 label = claim
             elif kind == "pred":
-                label = "est."
+                if anch and abs(p[0] - anch[0]) < 1e-3 and abs(p[1] - anch[1]) < 1e-3:
+                    label = ""
+                else:
+                    label = "est."
             out.append({"lat": round(p[0], 6), "lon": round(p[1], 6),
                         "kind": kind, "label": _e(label[: _MAX_LABEL])})
         except Exception:
@@ -252,16 +257,12 @@ def _bands(s: dict) -> list:
 
 
 def _labels(s: dict) -> list[dict]:
-    """Free-floating text labels for svg_map: anchor name + 'est.' tag."""
-    out: list[dict] = []
-    p = _anchor_pt(s)
-    if p:
-        txt = _claim_label(s) or "claimed"
-        out.append({"lat": p[0], "lon": p[1], "text": _e(txt[:80])})
-    p = _pred_pt(s)
-    if p:
-        out.append({"lat": p[0], "lon": p[1], "text": "est."})
-    return out
+    """Free-floating text labels for svg_map.
+
+    _markers(s) already carries labels for the claim and prediction pins,
+    so emitting them again here would print every label twice in the SVG.
+    """
+    return []
 
 
 # --------------------------------------------------------------------------

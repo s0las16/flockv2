@@ -757,12 +757,15 @@ def run(
             if ranked:
                 pack.add(match_score.match_evidence(ranked, claimed_cc))
                 osint_vec["_ranked"] = ranked[:8]
-                try:  # blended prediction point vs the claimed anchor
-                    from . import geocell_pred
-                    pred = geocell_pred.predict_point(ranked)
-                    if pred:
-                        osint_vec["_pred"] = pred
-                        pack.add(geocell_pred.pred_evidence(pred, anchor))
+                try:  # blended prediction point vs the claimed anchor — only
+                    # when at least one cue moved the ranking off the flat 0.5 tie
+                    if any(r.get("hits") or abs(float(r.get("score", 0.5)) - 0.5) > 1e-4
+                           for r in ranked if isinstance(r, dict)):
+                        from . import geocell_pred
+                        pred = geocell_pred.predict_point(ranked)
+                        if pred:
+                            osint_vec["_pred"] = pred
+                            pack.add(geocell_pred.pred_evidence(pred, anchor))
                 except Exception:
                     pass
     except Exception:
@@ -773,6 +776,34 @@ def run(
                         **{k: v for k, v in observations.items()
                            if isinstance(v, (str, list)) and v}}
         pack.add(geotips.tip_evidence(obs_for_tips, claimed_cc))
+    except Exception:
+        pass
+    try:  # Hierarchical continent -> subregion -> country narrowing
+        from . import hier_geoguess
+        cue_map = {str(r["cc"]): float(r.get("score", 0.5))
+                   for r in (osint_vec.get("_ranked") or [])
+                   if isinstance(r, dict) and r.get("cc")
+                   and (r.get("hits") or abs(float(r.get("score", 0.5)) - 0.5) > 1e-4)}
+        obs_hier = {**osint_vec,
+                    **{k: v for k, v in observations.items() if v}}
+        if any(obs_hier.get(k) for k in ("driving_side", "sign_language", "plate_style",
+                                         "vegetation", "climate_cues", "road_markings")) or cue_map:
+            hier = hier_geoguess.infer_hierarchy(obs_hier, cue_map or None)
+            if hier and hier.get("top_countries"):
+                ev = hier_geoguess.hierarchy_evidence(hier, claimed_cc)
+                if ev is not None:
+                    pack.add(ev)
+    except Exception:
+        pass
+    try:  # High-precision street furniture & road markings cues
+        from . import street_cues
+        obs_street = {**osint_vec,
+                      **{k: v for k, v in observations.items() if v}}
+        sc_rows = street_cues.score_street_cues(obs_street)
+        if sc_rows:
+            ev = street_cues.street_cue_evidence(sc_rows, claimed_cc)
+            if ev is not None:
+                pack.add(ev)
     except Exception:
         pass
     try:  # CLIP country prior — zero-shot image->country gallery scoring;
@@ -950,6 +981,34 @@ def run(
     except Exception:
         pass
     # Geo-family digest when the scene produced many geo cards.
+    try:  # Ensemble coordinate KDE + cross-modality Bayesian matrix fusion
+        from . import geo_ensemble, geo_matrix
+        cands = geo_ensemble.candidates_from_evidence(pack.evidence)
+        if len(cands) >= 2:
+            cweights = geo_ensemble.country_weights_from_evidence(pack.evidence)
+            clusters = geo_ensemble.kde_rank_candidates(cands, cweights or None)
+            if clusters:
+                ev_ens = geo_ensemble.ensemble_evidence(clusters, anchor=anchor, claimed_cc=claimed_cc)
+                if ev_ens is not None:
+                    pack.add(ev_ens)
+        fused = geo_matrix.fuse_signals(pack.evidence)
+        if fused and fused.get("agreement_count", 0) >= 2:
+            ev_mat = geo_matrix.matrix_evidence(fused, claimed_cc=claimed_cc)
+            if ev_mat is not None:
+                pack.add(ev_mat)
+    except Exception:
+        pass
+    try:  # OCR date extraction & regional date-format conventions
+        from . import ocr_dates
+        date_pool = list(texts or []) + [ts for _, ts in (overlay_pairs or []) if ts]
+        if date_pool:
+            ext_dates = ocr_dates.extract_dates(date_pool)
+            if ext_dates:
+                ev_dt = ocr_dates.date_evidence(ext_dates, claim_time, claimed_cc)
+                if ev_dt is not None:
+                    pack.add(ev_dt)
+    except Exception:
+        pass
     try:
         from . import dedupe_evidence
         roll = dedupe_evidence.geo_rollup(pack.evidence)
@@ -1086,9 +1145,10 @@ def run(
              "lat": lat, "lon": lon, "cc": claimed_cc},
             ranked=osint_vec.get("_ranked"))
         agent_run = agent_loop.run_loop(brief, max_steps=6, budget_s=30)
-        ev = transcript_card.card(agent_run)
-        if ev is not None:
-            pack.add(ev)
+        if (agent_run or {}).get("transcript"):
+            ev = transcript_card.card(agent_run)
+            if ev is not None:
+                pack.add(ev)
     except Exception:
         pass
 

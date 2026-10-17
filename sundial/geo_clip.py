@@ -26,6 +26,7 @@ API:
 from __future__ import annotations
 
 import math
+import os
 from typing import Any
 
 __all__ = ["available", "predict_coords", "geoclip_evidence", "pred_summary"]
@@ -80,8 +81,10 @@ def _predict_one(model, path: str, top_k: int):
         gps, probs = model.predict(path, top_k=top_k)
     except Exception:
         return []
+    if gps is None:
+        return []
     out = []
-    for i, pt in enumerate(gps or []):
+    for i, pt in enumerate(gps):
         try:
             la = _float(pt[0])
             lo = _float(pt[1])
@@ -107,19 +110,37 @@ def _haversine_km(a_lat, a_lon, b_lat, b_lon) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+def _place_label(lat: float, lon: float) -> dict:
+    """Offline nearest-city lookup via offline_places; {} on any failure."""
+    try:
+        try:
+            from . import offline_places
+        except ImportError:
+            import offline_places  # type: ignore[no-redef]
+        hit = offline_places.nearest_city(lat, lon)
+        if isinstance(hit, dict) and hit.get("label"):
+            return hit
+    except Exception:
+        pass
+    return {}
+
+
 def predict_coords(frame_paths, top_k: int = 5) -> list[dict]:
     """Per-frame GeoCLIP predictions -> clustered [{lat, lon, prob, frames}].
 
     Each frame contributes its top-1 prediction; predictions inside
-    _CLUSTER_KM of a cluster centre join it, weighted by prob. Rows are
-    sorted by total prob descending — row 0 is the model's best guess.
+    _CLUSTER_KM of a cluster centre join it, weighted by prob. Alternate
+    top-k candidates from each frame are also preserved in `alts` so
+    downstream ensemble / map-marker stages see the full distribution.
+    Rows are sorted by total prob descending — row 0 is the model's best guess.
     [] when the model is absent, no frames predict, or anything fails.
     """
     try:
         model = _model()
         if model is None:
             return []
-        paths = [p for p in (frame_paths or []) if isinstance(p, str) and p]
+        paths = [os.fspath(p) for p in (frame_paths or [])
+                 if isinstance(p, (str, os.PathLike)) and str(p)]
         if not paths:
             return []
         clusters: list[dict] = []
@@ -137,12 +158,20 @@ def predict_coords(frame_paths, top_k: int = 5) -> list[dict]:
                         c["lon"] = (c["lon"] * c["prob"] + lo * prob) / w
                     c["prob"] = w
                     c["frames"] += 1
+                    c.setdefault("alts", []).extend(preds[1:])
                     placed = True
                     break
             if not placed:
                 clusters.append({"lat": la, "lon": lo, "prob": prob,
-                                 "frames": 1, "alts": preds[1:]})
+                                 "frames": 1, "alts": list(preds[1:])})
         clusters.sort(key=lambda c: -c["prob"])
+        for c in clusters:
+            hit = _place_label(c["lat"], c["lon"])
+            if hit:
+                c["label"] = hit.get("label")
+                c["city"] = hit.get("name")
+                c["cc"] = hit.get("cc")
+                c["country"] = hit.get("country")
         return clusters
     except Exception:
         return []
@@ -197,11 +226,65 @@ def geoclip_evidence(rows: list[dict], anchor=None,
         summ = pred_summary(rows)
         if summ is None:
             return None
+        cands: list[dict] = []
+        for r in rows[:5]:
+            c_hit = _place_label(r["lat"], r["lon"])
+            cands.append({
+                "lat": r["lat"], "lon": r["lon"], "prob": r["prob"],
+                "label": r.get("label") or c_hit.get("label"),
+                "cc": r.get("cc") or c_hit.get("cc"),
+            })
+        if len(cands) < 5:
+            for r in rows:
+                for alt in (r.get("alts") or []):
+                    if len(cands) >= 5:
+                        break
+                    try:
+                        ala, alo, ap = float(alt[0]), float(alt[1]), float(alt[2])
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    if all(_haversine_km(ala, alo, x["lat"], x["lon"]) > 35.0
+                           for x in cands):
+                        a_hit = _place_label(ala, alo)
+                        cands.append({
+                            "lat": ala, "lon": alo, "prob": ap,
+                            "label": a_hit.get("label"),
+                            "cc": a_hit.get("cc"),
+                        })
+        top_hit = _place_label(summ["lat"], summ["lon"])
+        place_str = (best.get("label") or top_hit.get("label") or "").strip()
+        # Aggregate candidate probability mass by country so the report rail
+        # shows a meaningful country bar (e.g. 5/5 top guesses in DE -> ~78%)
+        # rather than a raw 1-of-100k gallery softmax value (0.04).
+        cc_mass: dict[str, float] = {}
+        cc_hits: dict[str, int] = {}
+        for r in rows:
+            rcc = r.get("cc") or _place_label(r["lat"], r["lon"]).get("cc")
+            if rcc:
+                cc_mass[rcc] = cc_mass.get(rcc, 0.0) + float(r.get("prob") or 0.0)
+                cc_hits[rcc] = cc_hits.get(rcc, 0) + 1
+            for alt in (r.get("alts") or []):
+                try:
+                    ala, alo, ap = float(alt[0]), float(alt[1]), float(alt[2])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                acc = _place_label(ala, alo).get("cc")
+                if acc:
+                    cc_mass[acc] = cc_mass.get(acc, 0.0) + max(0.0, ap)
+                    cc_hits[acc] = cc_hits.get(acc, 0) + 1
+        tot_mass = sum(cc_mass.values()) or 1.0
+        ranked_ccs = [
+            {"cc": k, "score": round(min(0.88, 0.80 * (v / tot_mass)), 3),
+             "hits": cc_hits.get(k, 1)}
+            for k, v in sorted(cc_mass.items(), key=lambda kv: -kv[1])
+        ]
         data = {"lat": summ["lat"], "lon": summ["lon"],
                 "r_km": summ["r_km"], "prob": summ["prob"],
                 "frames_agreeing": summ["frames"],
-                "candidates": [{k: r[k] for k in ("lat", "lon", "prob")}
-                               for r in rows[:5]],
+                "label": place_str or None,
+                "cc": best.get("cc") or top_hit.get("cc"),
+                "ranked": ranked_ccs,
+                "candidates": cands,
                 "model": "geoclip/mp16"}
         alat = alon = None
         try:
@@ -214,7 +297,9 @@ def geoclip_evidence(rows: list[dict], anchor=None,
             alat = alon = None
 
         agree = int(summ["frames"])
-        base = (f"GeoCLIP pins {summ['lat']:.3f}, {summ['lon']:.3f} "
+        where_txt = (f"{place_str} ({summ['lat']:.3f}, {summ['lon']:.3f})"
+                     if place_str else f"{summ['lat']:.3f}, {summ['lon']:.3f}")
+        base = (f"GeoCLIP pins {where_txt} "
                 f"(~{summ['r_km']:.0f} km radius, {agree} frame"
                 f"{'s' if agree != 1 else ''} agreeing)")
         if alat is None:

@@ -111,6 +111,7 @@ _TYPE_LABEL = {
     "tz_check": "Time zone check",
     "claim_tz": "Time zone check",
     "geo": "Location lookup",
+    "geo-resolve": "Location lookup",
     "geocell_pred": "Region estimate",
     "geo_pred": "Region estimate",
     "geo_matrix": "Location clues",
@@ -121,6 +122,9 @@ _TYPE_LABEL = {
     "hier_geoguess": "Country guess",
     "clip_geo": "Scene match",
     "geo_clip": "Model estimate",
+    "geo_ensemble": "Combined location estimate",
+    "geo_matrix": "Cross-checked location",
+    "street_cues": "Street and road clues",
     "plate_ocr": "License plates",
     "wiki": "Wikipedia check",
     "wiki_places": "Nearby landmarks",
@@ -330,6 +334,22 @@ def _frame_viz(ev: "Evidence") -> str:
     )
 
 
+def _human_summary(ev: "Evidence") -> str:
+    """Clean internal pipeline jargon out of card summaries for display."""
+    s = str(getattr(ev, "summary", "") or "").strip()
+    t = str(getattr(ev, "type", "") or "").strip().lower()
+    if t == "agent_transcript" and s.startswith("agent ran "):
+        d = getattr(ev, "data", None) or {}
+        steps = d.get("transcript") if isinstance(d, dict) else []
+        ok_n = sum(1 for x in (steps or []) if isinstance(x, dict) and x.get("ok", True))
+        n = len(steps or []) or ok_n
+        if ok_n:
+            return (f"ran {ok_n} background verification check"
+                    f"{'s' if ok_n != 1 else ''} on the location and map records")
+        return f"ran {n} background check{'s' if n != 1 else ''}"
+    return s
+
+
 def _ev_card(ev: "Evidence", idx: int) -> str:
     cv = _cv(ev.verdict)
     fg, bg, border = _PILL[cv]
@@ -350,7 +370,7 @@ def _ev_card(ev: "Evidence", idx: int) -> str:
         f'<span class="econfnum">{pct:.0f}%</span></div>'
         f'<div class="confbar"><div class="conffill" data-w="{pct:.0f}" '
         f'style="background:{fg};width:{pct:.0f}%"></div></div>'
-        f'<div class="evsum">{_e(ev.summary)}</div>{frames}{_frame_viz(ev)}</div>'
+        f'<div class="evsum">{_e(_human_summary(ev))}</div>{frames}{_frame_viz(ev)}</div>'
     )
 
 

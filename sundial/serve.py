@@ -470,34 +470,38 @@ def _report_extra(adj) -> dict:
         anchor = getattr(adj, "anchor", None)
         claim_place = getattr(adj, "claim_place", None)
         summ = locate_summary.summarize(ev, anchor, claim_place)
-        if isinstance(summ, dict) and summ:
+        if isinstance(summ, dict) and any(
+                summ.get(k) for k in ("anchor", "predicted", "markers",
+                                      "ranked", "best_cc", "best_name")):
             extra["loc_summary"] = summ
             center = summ.get("anchor") or summ.get("predicted")
+            placeable = bool(center or summ.get("markers"))
             radius = (summ.get("predicted") or {}).get("radius_km")
             zoom = 12 if summ.get("anchor") else max(
                 2, min(10, round(8 - math.log2(max(radius or 300, 50) / 300))))
             # Local vector map is the primary payload. The module is being
             # written concurrently, so accept either convenience API:
             # vec_fragment(summ) or fragment_for(adj).
-            try:
-                from . import vec_map
+            if placeable:
+                try:
+                    from . import vec_map
 
-                frag = ""
-                for name, arg in (("vec_fragment", summ),
-                                  ("fragment_for", adj)):
-                    func = getattr(vec_map, name, None)
-                    if callable(func):
-                        try:
-                            frag = func(arg) or ""
-                        except Exception:
-                            frag = ""
+                    frag = ""
+                    for name, arg in (("vec_fragment", summ),
+                                      ("fragment_for", adj)):
+                        func = getattr(vec_map, name, None)
+                        if callable(func):
+                            try:
+                                frag = func(arg) or ""
+                            except Exception:
+                                frag = ""
+                        if frag:
+                            break
                     if frag:
-                        break
-                if frag:
-                    extra["map_svg"] = frag
-            except Exception:
-                pass
-            if "map_svg" not in extra:
+                        extra["map_svg"] = frag
+                except Exception:
+                    pass
+            if placeable and "map_svg" not in extra:
                 try:  # interactive slippy map second
                     from . import map_viz
 
@@ -508,7 +512,7 @@ def _report_extra(adj) -> dict:
                         extra["map_fragment"] = frag
                 except Exception:
                     pass
-            if "map_svg" not in extra and "map_fragment" not in extra:
+            if placeable and "map_svg" not in extra and "map_fragment" not in extra:
                 try:  # static PNG last resort (needs PIL + tile network)
                     from . import map_tiles
 
@@ -528,17 +532,22 @@ def _report_extra(adj) -> dict:
                         fv = (getattr(card, "data", None) or {}).get("vector") or {}
                         break
                 chain = osint_chain.build_chain(fv, ranked)
-                if chain:
+                if chain and any(s.get("kind") != "rank" for s in chain):
                     extra["chain_html"] = osint_chain.chain_html(chain)
             except Exception:
                 pass
             try:  # agent investigation transcript -> own rail block
                 from . import transcript_card
 
-                th = transcript_card.transcript_html(
-                    getattr(adj, "agent_run", None))
-                if th:
-                    extra["chain_html"] = (extra.get("chain_html") or "") + th
+                arun = getattr(adj, "agent_run", None)
+                if isinstance(arun, dict):
+                    ok_steps = [s for s in (arun.get("transcript") or [])
+                                if isinstance(s, dict) and s.get("ok", True)]
+                    if ok_steps:
+                        th = transcript_card.transcript_html(
+                            {**arun, "transcript": ok_steps})
+                        if th:
+                            extra["chain_html"] = (extra.get("chain_html") or "") + th
             except Exception:
                 pass
     except Exception:

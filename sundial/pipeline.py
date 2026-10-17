@@ -494,6 +494,13 @@ def run(
                     picks = pool[:max_vlm_frames]
             except Exception:
                 picks = frames[:max_vlm_frames]
+            try:  # re-rank picks by sign/text/geo info density (same budget)
+                from . import frame_selector
+                geo_picks = frame_selector.select_geo_frames(picks, n=len(picks))
+                if geo_picks:
+                    picks = geo_picks
+            except Exception:
+                pass
 
             cv_tilt: float | None = None
             for f in picks:
@@ -569,9 +576,14 @@ def run(
     # Classical OCR fallback for burned-in timestamps the VLM can't resolve.
     if picks:
         try:
-            from . import ocr
+            from . import ocr, ocr_boost
+            covered = {f for f, _ in overlay_pairs}
+            boost = ocr_boost.read_timestamps([f for f in picks if f not in covered])
+            for f, ts_list in (boost.get("per_frame") or {}).items():
+                for raw in ts_list:
+                    for ts in ocr.extract_timestamps(raw or ""):
+                        overlay_pairs.append((f, ts))
             if ocr.ocr_available():
-                covered = {f for f, _ in overlay_pairs}
                 for f in picks:
                     if f in covered:
                         continue
@@ -713,6 +725,22 @@ def run(
             if ranked:
                 pack.add(match_score.match_evidence(ranked, claimed_cc))
                 osint_vec["_ranked"] = ranked[:8]
+                try:  # blended prediction point vs the claimed anchor
+                    from . import geocell_pred
+                    pred = geocell_pred.predict_point(ranked)
+                    if pred:
+                        osint_vec["_pred"] = pred
+                        pack.add(geocell_pred.pred_evidence(pred, anchor))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        from . import geotips
+        obs_for_tips = {**osint_vec,
+                        **{k: v for k, v in observations.items()
+                           if isinstance(v, (str, list)) and v}}
+        pack.add(geotips.tip_evidence(obs_for_tips, claimed_cc))
     except Exception:
         pass
     try:
@@ -800,6 +828,13 @@ def run(
         meta.update(camera_meta.video_metadata(video_path) or {})
         if meta:
             pack.add(camera_meta.meta_evidence(meta, claim_time, anchor))
+    except Exception:
+        pass
+    try:  # container-level forensics: encoder/mux-time tells
+        from . import video_meta
+        vmeta = video_meta.probe(video_path)
+        if vmeta:
+            pack.add(video_meta.video_meta_evidence(vmeta, claim_time, anchor))
     except Exception:
         pass
     try:
@@ -892,6 +927,18 @@ def run(
             mev = moonphase.moon_evidence(claimed_utc, None)
             if mev:
                 pack.add(mev)
+        except Exception:
+            pass
+        # Expected day/night at the claimed anchor+time vs observed lighting.
+        try:
+            from . import sun_times
+            if conditions_list:
+                claimed_utc, _ = _claimed_utc(lat, lon, claim_time, arch)
+                state = sun_times.day_state(claimed_utc, lat, lon)
+                obs_cond = _norm_conditions(_majority_conditions(conditions_list))
+                ev = sun_times.lighting_evidence(state, obs_cond, str(claim_time))
+                if ev is not None:
+                    pack.add(ev)
         except Exception:
             pass
     elif claim_time or claim_place:

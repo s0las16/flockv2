@@ -562,8 +562,20 @@ function init(container, options) {
   resize();
   wake();
 
+  const baseSpeed = settings.speed;
   return {
     wake() { if (!raf) render(settings); wake(); },
+    // Feed a synthetic pointer — the lift/focus springs engage under it
+    // even while the real cursor is elsewhere (e.g. while typing).
+    setPointer(x, y, inside) {
+      pointer.x = x;
+      pointer.y = y;
+      pointer.inside = inside !== false;
+      wake();
+    },
+    clearPointer() { pointer.inside = false; wake(); },
+    setSpeed(mult) { settings.speed = baseSpeed * mult; wake(); },
+    get speed() { return settings.speed; },
     destroy() {
       alive = false;
       cancelAnimationFrame(raf);

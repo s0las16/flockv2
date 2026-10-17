@@ -43,97 +43,97 @@ _JOBS: dict[str, dict] = {}
 _CSS = """
 *{box-sizing:border-box}
 body{font-family:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
- background:#000;color:#e5e5e5;margin:0;min-height:100vh;
+ background:#000;color:#f5f5f5;margin:0;min-height:100vh;
  display:flex;flex-direction:column}
 #bg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.wrap{flex:1;width:100%;max-width:460px;margin:0 auto;
+.wrap{flex:1;width:100%;max-width:520px;margin:0 auto;
  padding:0 24px;display:flex;flex-direction:column;justify-content:center;
  position:relative;z-index:1;min-height:100vh}
-.brand{font-size:13px;letter-spacing:.55em;color:#fff;text-transform:uppercase;
- margin-bottom:64px}
-.brand span{display:block;font-size:10px;letter-spacing:.3em;color:#666;
- margin-top:10px}
+.brand{font-size:15px;letter-spacing:.6em;color:#fff;text-transform:uppercase;
+ margin-bottom:56px}
 .card{position:relative}
 h1{display:none}
 .sub{display:none}
-label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.25em;
- color:#555;margin:0 0 8px}
-input[type=text]{width:100%;background:transparent;border:none;
- border-bottom:1px solid #2a2a2a;padding:12px 0;color:#fff;font:inherit;
- font-size:15px;transition:border-color .25s}
-input[type=text]:focus{outline:none;border-bottom-color:#fff}
-input[type=text]::placeholder{color:#3a3a3a}
-.field{margin-bottom:34px}
-.filewrap{border:1px dashed #2e2e2e;border-radius:2px;padding:26px 20px;
- transition:border-color .25s;cursor:pointer;text-align:center;
- margin-bottom:34px}
-.filewrap:hover,.filewrap.over{border-color:#888}
 input[type=file]{position:absolute;width:1px;height:1px;opacity:0;
  overflow:hidden;clip:rect(0 0 0 0)}
-.flabel{font-size:12px;color:#777;letter-spacing:.05em}
-.flabel b{color:#fff;font-weight:400}
-.fname{font-size:11px;color:#999;margin-top:8px;word-break:break-all}
-button{display:block;width:100%;padding:15px;border:none;background:#fff;
- color:#000;font:inherit;font-weight:700;font-size:11px;
- letter-spacing:.3em;text-transform:uppercase;cursor:pointer;
- transition:opacity .2s}
-button:hover{opacity:.82}
-button:disabled{opacity:.35;cursor:wait}
 a{color:#999}
-.prog{display:none;margin-top:40px;text-align:center}
-.spin{width:34px;height:34px;border-radius:50%;margin:0 auto 18px;
- border:2px solid #1c1c1c;border-top-color:#fff;
+
+/* prompt-bar */
+.pb{width:100%}
+.pb-field{background:#141414;border:1px solid #262626;border-radius:16px;
+ padding:14px 14px 10px;transition:border-color .2s;cursor:text}
+.pb-field:focus-within{border-color:#4a4a4a}
+.pb-field.over{border-color:#777;border-style:dashed}
+.pb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:2px}
+.pb-chips:empty{display:none}
+.pb-chip{display:inline-flex;align-items:center;gap:7px;height:26px;
+ padding:0 4px 0 9px;border-radius:8px;background:#262626;font-size:12px;
+ color:#d4d4d4}
+.pb-chip svg{flex:none;opacity:.7}
+.pb-chip-name{max-width:200px;overflow:hidden;white-space:nowrap;
+ text-overflow:ellipsis}
+.pb-chip-x{display:inline-grid;place-items:center;width:18px;height:18px;
+ padding:0;border:0;border-radius:5px;background:transparent;color:inherit;
+ opacity:.6;cursor:pointer}
+.pb-chip-x:hover{opacity:1;background:#3a3a3a}
+.pb-in{width:100%;border:0;background:transparent;color:#f5f5f5;
+ font:inherit;font-size:17px;line-height:24px;resize:none;outline:none;
+ min-height:26px;max-height:120px}
+.pb-in::placeholder{color:#5c5c5c}
+.pb-bar{display:flex;align-items:center;gap:6px;margin-top:8px}
+.pb-tool{display:inline-grid;place-items:center;width:30px;height:30px;
+ padding:0;border:0;border-radius:8px;background:transparent;color:#8a8a8a;
+ cursor:pointer;transition:background .15s,color .15s}
+.pb-tool:hover{background:#262626;color:#f5f5f5}
+.pb-hint{font-size:12px;color:#4f4f4f;letter-spacing:.03em}
+.pb-spacer{flex:1}
+.pb-send{display:inline-grid;place-items:center;width:30px;height:30px;
+ padding:0;border:0;border-radius:8px;background:#262626;color:#666;
+ cursor:default;transition:background .18s,color .18s,transform .15s}
+.pb-send[data-armed]{background:#f5f5f5;color:#000;cursor:pointer}
+.pb-send[data-armed]:active{transform:scale(.94)}
+
+/* progress */
+.prog{display:none;margin-top:22px;text-align:center}
+.spin{width:32px;height:32px;border-radius:50%;margin:0 auto 14px;
+ border:2px solid #1f1f1f;border-top-color:#f5f5f5;
  animation:rot .8s linear infinite}
 @keyframes rot{to{transform:rotate(360deg)}}
-.ptxt{font-size:11px;color:#888;letter-spacing:.1em}
-.ptxt b{color:#fff;font-variant-numeric:tabular-nums;font-weight:400}
-.step{font-size:10px;color:#4a4a4a;margin-top:8px;letter-spacing:.15em}
-.err{color:#b66;font-size:12px;margin-top:16px;min-height:1em}
-.adv{margin-bottom:30px}
-.adv summary{font-size:10px;text-transform:uppercase;letter-spacing:.25em;
- color:#444;cursor:pointer;list-style:none;transition:color .2s}
-.adv summary:hover{color:#999}
-.adv summary::before{content:"+ ";color:#444}
-.adv[open] summary::before{content:"– "}
-footer{position:relative;z-index:1;text-align:center;color:#333;
- font-size:9px;letter-spacing:.4em;text-transform:uppercase;
- padding:20px 0 26px}
+.ptxt{font-size:13px;color:#999;letter-spacing:.05em}
+.ptxt b{color:#f5f5f5;font-variant-numeric:tabular-nums;font-weight:400}
+.step{font-size:11px;color:#555;margin-top:7px;letter-spacing:.12em}
+.err{color:#b66;font-size:13px;margin-top:14px;min-height:1em}
+button{font:inherit}
 """
 
 _UPLOAD_BODY = """
-<div class="card">
+<div class="card pb">
   <form id="vf" method="post" action="/verify" enctype="multipart/form-data">
-    <label for="video">media</label>
-    <div class="filewrap" id="filewrap">
-      <input type="file" id="video" name="video"
-             accept="video/*,image/*" required>
-      <div class="flabel" id="flabel"><b>drop a clip or still</b>
-        &mdash; or click</div>
-      <div class="fname" id="fname"></div>
-    </div>
-
-    <div class="field">
-      <label for="claim">claim</label>
-      <input type="text" id="claim" name="claim"
-             placeholder="filmed tuesday 3pm in london" autocomplete="off">
-    </div>
-
-    <details class="adv" id="adv">
-      <summary>advanced</summary>
-      <div class="field" style="margin-top:22px">
-        <label for="claim_time">claimed time</label>
-        <input type="text" id="claim_time" name="claim_time"
-               placeholder="2025-10-17T15:00" autocomplete="off">
+    <input type="file" id="video" name="video" accept="video/*,image/*">
+    <div class="pb-field" id="pbf">
+      <div class="pb-chips" id="chips"></div>
+      <textarea class="pb-in" id="claim" name="claim" rows="1"
+        placeholder="filmed tuesday 3pm in london &hellip; or ask where it was"
+        autocomplete="off"></textarea>
+      <div class="pb-bar">
+        <button type="button" class="pb-tool" id="attach"
+          aria-label="attach a file">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0
+            1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0
+            1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <span class="pb-hint" id="hint">drop a file</span>
+        <span class="pb-spacer"></span>
+        <button type="submit" class="pb-send" id="go" aria-label="verify">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+            stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/>
+            <polyline points="5 12 12 5 19 12"/></svg>
+        </button>
       </div>
-      <div class="field">
-        <label for="claim_place">claimed place</label>
-        <input type="text" id="claim_place" name="claim_place"
-               placeholder="london or 51.50,-0.12" autocomplete="off">
-      </div>
-    </details>
-
-    <button id="go" type="submit">verify</button>
-
+    </div>
     <div class="prog" id="prog">
       <div class="spin"></div>
       <div class="ptxt"><b id="elapsed">0:00</b></div>
@@ -148,45 +148,89 @@ _UPLOAD_BODY = """
       prog = document.getElementById("prog"), err = document.getElementById("err"),
       elapsed = document.getElementById("elapsed"),
       step = document.getElementById("step"),
-      wrap = document.getElementById("filewrap"),
+      field = document.getElementById("pbf"),
       fi = document.getElementById("video"),
-      flabel = document.getElementById("flabel"),
-      fname = document.getElementById("fname");
-  wrap.addEventListener("click", function() { fi.click(); });
-  fi.addEventListener("change", function() {
-    fname.textContent = fi.files && fi.files.length ? fi.files[0].name : "";
-    flabel.style.display = fi.files && fi.files.length ? "none" : "block";
-  });
-  ["dragover","dragenter"].forEach(function(ev) {
-    wrap.addEventListener(ev, function(e) {
-      e.preventDefault(); wrap.classList.add("over");
-    });
-  });
-  ["dragleave","drop"].forEach(function(ev) {
-    wrap.addEventListener(ev, function(e) {
-      e.preventDefault(); wrap.classList.remove("over");
-    });
-  });
-  wrap.addEventListener("drop", function(e) {
-    if (e.dataTransfer.files && e.dataTransfer.files.length) {
-      fi.files = e.dataTransfer.files;
-      fi.dispatchEvent(new Event("change"));
-    }
-  });
+      chips = document.getElementById("chips"),
+      hint = document.getElementById("hint"),
+      input = document.getElementById("claim");
   var STEPS = ["extracting frames", "asking the VLM about shadows & sign text",
                "cataloguing OSINT scene cues", "scoring candidate countries",
                "reading burned-in clock overlays", "geocoding sign text",
                "checking landmarks, weather & climate archives",
                "computing sun position", "adjudicating the evidence"];
+
+  // textarea auto-grow, prompt-bar style
+  var grow = function() {
+    input.style.height = "0px";
+    var h = Math.min(input.scrollHeight, 120);
+    input.style.height = h + "px";
+    input.style.overflowY = input.scrollHeight > 120 ? "auto" : "hidden";
+  };
+  input.addEventListener("input", grow);
+
+  // send tile arms only with a file attached
+  var arm = function() {
+    if (fi.files && fi.files.length) btn.setAttribute("data-armed", "");
+    else btn.removeAttribute("data-armed");
+  };
+  arm();
+
+  var showFile = function() {
+    chips.innerHTML = "";
+    if (fi.files && fi.files.length) {
+      var chip = document.createElement("span");
+      chip.className = "pb-chip";
+      chip.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" '
+        + 'fill="none" stroke="currentColor" stroke-width="2"><path d="M13 '
+        + '2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>'
+        + '<polyline points="13 2 13 9 20 9"/></svg>'
+        + '<span class="pb-chip-name"></span>'
+        + '<button type="button" class="pb-chip-x">&times;</button>';
+      chip.querySelector(".pb-chip-name").textContent = fi.files[0].name;
+      chip.querySelector(".pb-chip-x").addEventListener("click", function(e) {
+        e.stopPropagation();
+        fi.value = ""; showFile(); arm();
+      });
+      chips.appendChild(chip);
+      hint.textContent = "file ready";
+    } else {
+      hint.textContent = "drop a file";
+    }
+  };
+  document.getElementById("attach").addEventListener("click", function() {
+    fi.click();
+  });
+  fi.addEventListener("change", function() { showFile(); arm(); });
+
+  // drag & drop anywhere on the field
+  ["dragover","dragenter"].forEach(function(ev) {
+    field.addEventListener(ev, function(e) {
+      e.preventDefault(); field.classList.add("over");
+    });
+  });
+  ["dragleave","drop"].forEach(function(ev) {
+    field.addEventListener(ev, function(e) {
+      e.preventDefault(); field.classList.remove("over");
+    });
+  });
+  field.addEventListener("drop", function(e) {
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      fi.files = e.dataTransfer.files;
+      fi.dispatchEvent(new Event("change"));
+    }
+  });
+  field.addEventListener("click", function(e) {
+    if (e.target === field) input.focus();
+  });
+
   form.addEventListener("submit", function(e) {
     e.preventDefault();
     err.textContent = "";
     if (!fi.files || !fi.files.length) {
-      err.textContent = "choose a file first";
+      err.textContent = "attach a file first";
       return;
     }
     btn.disabled = true;
-    btn.textContent = "running\\u2026";
     prog.style.display = "block";
     var t0 = Date.now();
     var tick = setInterval(function() {
@@ -199,7 +243,6 @@ _UPLOAD_BODY = """
     var fail = function(msg) {
       clearInterval(tick);
       btn.disabled = false;
-      btn.textContent = "run verification";
       prog.style.display = "none";
       err.textContent = msg;
     };
@@ -285,7 +328,28 @@ _WAVES_INIT = """
     amplitude: 0.1, frequency: 0.6, spread: 0.1,
     grain: 0.05, fade: 0.4, opacity: 0.7, mouseInteraction: true
   });
-  if (!waves) document.getElementById("bg").style.display = "none";
+  if (!waves) { document.getElementById("bg").style.display = "none"; return; }
+
+  // typing couples the waves: drift slows and the lift/focus pulls under
+  // the prompt field — the bars bend toward where you're working
+  var input = document.getElementById("claim"),
+      field = document.getElementById("pbf");
+  if (!input || !field) return;
+  var pull = function() {
+    var r = field.getBoundingClientRect();
+    waves.setPointer(r.left + r.width / 2, r.top + r.height / 2, true);
+    waves.setSpeed(0.22);
+  };
+  var release = function() {
+    if (document.activeElement === input) return;
+    waves.clearPointer();
+    waves.setSpeed(1);
+  };
+  input.addEventListener("focus", pull);
+  input.addEventListener("input", pull);
+  input.addEventListener("blur", release);
+  field.addEventListener("pointerenter", pull);
+  field.addEventListener("pointerleave", release);
 })();
 </script>
 """
@@ -299,7 +363,7 @@ def _page(title: str, body: str) -> bytes:
         f"<title>Sundial — {_e(title)}</title>"
         f'<style>{_CSS}</style></head><body>'
         '<div id="bg"></div><div class="wrap">'
-        '<div class="brand">sundial<span>video provenance</span></div>'
+        '<div class="brand">sundial</div>'
         f"{body}"
         "</div>"
         f"{_WAVES_INIT}"

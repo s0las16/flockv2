@@ -47,12 +47,15 @@ body{font-family:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace
  background-image:radial-gradient(rgba(148,163,184,.13) 1px,transparent 1px);
  background-size:26px 26px;animation:drift 60s linear infinite}
 @keyframes drift{to{background-position:520px 260px}}
-.wrap{max-width:560px;margin:0 auto;padding:56px 18px 60px}
+#bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+.wrap{max-width:560px;margin:0 auto;padding:56px 18px 60px;
+ position:relative;z-index:1}
 .brand{font-size:12px;letter-spacing:.35em;color:#64748b;text-transform:uppercase;
  margin-bottom:26px;display:flex;align-items:center;gap:10px}
 .brand::before{content:"";width:26px;height:1px;background:#334155}
-.card{border-radius:18px;padding:32px 36px;background:rgba(15,23,42,.72);
+.card{border-radius:18px;padding:32px 36px;background:rgba(15,23,42,.8);
  border:1px solid rgba(148,163,184,.14);
+ backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
  box-shadow:0 24px 70px rgba(0,0,0,.5),0 0 0 1px rgba(2,6,23,.6) inset}
 h1{font-size:21px;color:#e2e8f0;margin:0 0 8px;letter-spacing:.02em}
 .sub{font-size:12.5px;color:#94a3b8;line-height:1.6;margin:0}
@@ -94,15 +97,23 @@ footer{text-align:center;color:#334155;font-size:11px;letter-spacing:.2em;
 _UPLOAD_BODY = """
 <div class="card">
   <h1>Verify a clip&rsquo;s claim</h1>
-  <p class="sub">Upload a video and state when &amp; where it was supposedly
-  filmed. Sundial checks shadows, weather records, sign text and sun position,
-  then returns a verdict card.</p>
+  <p class="sub">Drop a video <em>or a still</em> and state when &amp; where
+  it was supposedly filmed. Sundial checks shadows, OSINT scene cues, weather
+  records, sign text and sun position, then returns a verdict card.</p>
   <form id="vf" method="post" action="/verify" enctype="multipart/form-data">
-    <label for="video">clip</label>
+    <label for="video">clip or image</label>
     <div class="filewrap">
-      <input type="file" id="video" name="video" accept="video/*" required>
+      <input type="file" id="video" name="video"
+             accept="video/*,image/*" required>
     </div>
-    <div class="hint">mp4 / mov / webm &mdash; a short clip is plenty</div>
+    <div class="hint">mp4 / mov / webm / jpg / png &mdash; a short clip or
+    a single still</div>
+
+    <label for="claim">claim <span style="color:#334155">(plain words)</span></label>
+    <input type="text" id="claim" name="claim"
+           placeholder="filmed Tuesday 3pm in London" autocomplete="off">
+    <div class="hint">or fill the explicit fields below &mdash; they win
+    if both are set</div>
 
     <label for="claim_time">claimed time</label>
     <input type="text" id="claim_time" name="claim_time"
@@ -133,9 +144,10 @@ _UPLOAD_BODY = """
       elapsed = document.getElementById("elapsed"),
       step = document.getElementById("step");
   var STEPS = ["extracting frames", "asking the VLM about shadows & sign text",
+               "cataloguing OSINT scene cues", "scoring candidate countries",
                "reading burned-in clock overlays", "geocoding sign text",
-               "checking weather archives", "computing sun position",
-               "adjudicating the evidence"];
+               "checking landmarks, weather & climate archives",
+               "computing sun position", "adjudicating the evidence"];
   form.addEventListener("submit", function(e) {
     e.preventDefault();
     err.textContent = "";
@@ -230,17 +242,40 @@ def _e(value) -> str:
     return html.escape("" if value is None else str(value))
 
 
+# SlicedWaves background — sundial palette (slate / sun-amber / sky). The
+# waves sit low on the page so they read as a horizon behind the form.
+_WAVES_INIT = """
+<script src="/sliced-waves.js"></script>
+<script>
+(function() {
+  if (!window.SlicedWaves) return;
+  var waves = window.SlicedWaves.init(document.getElementById("bg"), {
+    color1: "#475569", color2: "#facc15", color3: "#38bdf8",
+    ribbons: 3, spacing: 30, perspective: 0.5, curve: 0.55,
+    blur: 0.7, glow: 1.1, brightness: 0.9, position: 0.8,
+    amplitude: 0.11, frequency: 0.6, spread: 0.11,
+    grain: 0.06, fade: 0.35, opacity: 0.85, mouseInteraction: true
+  });
+  if (!waves) document.getElementById("bg").style.display = "none";
+})();
+</script>
+"""
+
+
 def _page(title: str, body: str) -> bytes:
     doc = (
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<link rel="icon" href="data:,">'
         f"<title>Sundial — {_e(title)}</title>"
-        f'<style>{_CSS}</style></head><body><div class="wrap">'
+        f'<style>{_CSS}</style></head><body>'
+        '<div id="bg"></div><div class="wrap">'
         '<div class="brand">Sundial &mdash; video provenance verification</div>'
         f"{body}"
         "<footer>Sundial &middot; VAST Builders Challenge</footer>"
-        "</div></body></html>"
+        "</div>"
+        f"{_WAVES_INIT}"
+        "</body></html>"
     )
     return doc.encode("utf-8")
 
@@ -405,6 +440,16 @@ class _Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             self._send(200, _INDEX)
+        elif path == "/sliced-waves.js":
+            js_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "sliced_waves.js")
+            try:
+                with open(js_path, "rb") as f:
+                    self._send(200, f.read(),
+                               "application/javascript; charset=utf-8",
+                               {"Cache-Control": "no-cache"})
+            except OSError:
+                self._send(404, b"", "application/javascript")
         elif path.startswith("/status/"):
             self._status(path[len("/status/"):])
         elif path.startswith("/result/"):
@@ -500,11 +545,22 @@ class _Handler(BaseHTTPRequestHandler):
                        {"error": "no video file uploaded (field 'video')"})
             return
         filename, data = vid
+        claim_time = (fields.get("claim_time") or "").strip() or None
+        claim_place = (fields.get("claim_place") or "").strip() or None
+        claim_text = (fields.get("claim") or "").strip()
+        if claim_text and (not claim_time or not claim_place):
+            try:  # plain-words claim — explicit fields win when both set
+                from .claim_parser import claim_to_args
+                parsed_time, parsed_place = claim_to_args(claim_text)
+                claim_time = claim_time or parsed_time or None
+                claim_place = claim_place or parsed_place or None
+            except Exception:
+                pass  # a claim that won't parse just adds no hint
         jobid = _start_job(
             data,
             filename or "clip",
-            (fields.get("claim_time") or "").strip() or None,
-            (fields.get("claim_place") or "").strip() or None,
+            claim_time,
+            claim_place,
         )
         payload = {"jobid": jobid,
                    "status_url": f"/status/{jobid}",

@@ -135,6 +135,29 @@ _TYPE_LABEL = {
     "landmark": "Landmark match",
     "consistency": "Consistency check",
     "audio": "Audio clues",
+    "frames": "Video frames",
+    "language": "Language clues",
+    "geo_match": "Location match",
+    "geo_rollup": "Location summary",
+    "geoguess": "Country guess",
+    "hemisphere": "Hemisphere clues",
+    "lunar": "Moon check",
+    "climate": "Climate clues",
+    "poi": "Nearby places",
+    "scene": "Scene analysis",
+    "shadow_consistency": "Shadow consistency",
+    "shadows": "Shadow direction",
+    "sign_style": "Road signs",
+    "plate_style": "License plates",
+    "osint_features": "Clues from the footage",
+    "texture": "Image texture",
+    "timezone": "Time zone check",
+    "weather+solar": "Weather and sun",
+    "corpus": "Reference data",
+    "cam_model": "Device fingerprint",
+    "exif_gps": "Embedded GPS tag",
+    "osm_context": "Street map check",
+    "unavailable": "Couldn't check",
 }
 
 #: 2-letter country codes seen in ranked rows -> display names. Codes
@@ -330,6 +353,58 @@ def _ev_card(ev: "Evidence", idx: int) -> str:
     )
 
 
+#: Summaries that mean "this stage never ran" — tools, deps, or inputs
+#: missing. These get collapsed into one quiet row instead of a wall of
+#: dead cards (a normal user reads them as "everything's broken").
+_UNAVAILABLE_HINT = (
+    "unavailable", "not set", "install ", "no usable", "no readable",
+    "missing", "skipped", "lookup failed", "offline",
+)
+
+
+def _collapse_unavailable(evs: list) -> list:
+    """Group inconclusive 'stage didn't run' cards into one quiet row."""
+    keep, gone = [], []
+    for e in evs:
+        s = str(getattr(e, "summary", "") or "").lower()
+        if (_cv(getattr(e, "verdict", None)) is ClaimVerdict.INCONCLUSIVE
+                and any(h in s for h in _UNAVAILABLE_HINT)):
+            gone.append(e)
+        else:
+            keep.append(e)
+    if gone:
+        names = ", ".join(
+            dict.fromkeys(_type_label(getattr(e, "type", "")) for e in gone))
+        try:
+            from .schema import Evidence as _Ev
+            keep.append(_Ev(
+                type="unavailable",
+                summary=(f"couldn't check {len(gone)} thing"
+                         f"{'s' if len(gone) != 1 else ''} — "
+                         f"{names}: tools or inputs missing on this machine"),
+                verdict=ClaimVerdict.INCONCLUSIVE,
+                confidence=0.05,
+                data={"collapsed_unavailable": True}))
+        except Exception:
+            keep.extend(gone)
+    return keep
+
+
+def _dedupe_types(evs: list, types: set) -> list:
+    """Keep only the first card of each given type — compact_for_display
+    emits a geo_rollup digest while the pack may already carry one."""
+    seen: set = set()
+    out = []
+    for e in evs:
+        t = getattr(e, "type", "")
+        if t in types:
+            if t in seen:
+                continue
+            seen.add(t)
+        out.append(e)
+    return out
+
+
 def _ranked_rows(ranked: Any) -> list[tuple[str, "float | None"]]:
     """Normalize a ranked-location list into [(label, score|None)].
 
@@ -502,6 +577,8 @@ def render_html(adj: Adjudication, out_path: str,
         evidence = dedupe_evidence.compact_for_display(evidence)
     except Exception:
         pass
+    evidence = _dedupe_types(evidence, {"geo_rollup"})
+    evidence = _collapse_unavailable(evidence)
     cards = []
     sun_shown = False
     for i, ev in enumerate(evidence):

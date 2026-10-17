@@ -321,6 +321,46 @@ def _dispatch(registry: dict, name: Any, kwargs: dict) -> dict:
                 "ms": (time.perf_counter() - t0) * 1000.0}
 
 
+#: Planner-name -> tool-param-name aliases. The LLM/rules planner guesses
+#: argument names from the catalog description, so forgiving aliases stop
+#: ``geocode(query=...)`` dying on ``_t_geocode(place=...)``.
+_ARG_ALIASES: dict[str, dict[str, str]] = {
+    "geocode": {"query": "place", "q": "place", "name": "place",
+                "text": "place"},
+    "weather": {"time_iso": "date", "iso": "date", "when": "date",
+                "iso_utc": "date"},
+    "sun_at": {"time_iso": "iso_utc", "iso": "iso_utc", "when": "iso_utc",
+               "date": "iso_utc", "dt": "iso_utc"},
+    "wiki_geo": {"radius": "radius_m"},
+    "overpass_pois": {"radius": "radius_m"},
+    "claim_tz": {"when": "time_iso", "iso": "time_iso", "date": "time_iso"},
+}
+
+
+def _fit_kwargs(tool_name: str, fn, kwargs: dict) -> dict:
+    """Alias-then-filter planner kwargs against ``fn``'s real signature.
+
+    Renames known aliases, drops anything the function can't take (a
+    VAR_KEYWORD sink accepts everything), and keeps position-only params
+    honest. Never raises — bad introspection returns kwargs untouched.
+    """
+    try:
+        if not isinstance(kwargs, dict):
+            return {}
+        out = dict(kwargs)
+        for alias, real in (_ARG_ALIASES.get(tool_name) or {}).items():
+            if alias in out and real not in out:
+                out[real] = out.pop(alias)
+        import inspect
+        params = inspect.signature(fn).parameters
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD
+               for p in params.values()):
+            return out
+        return {k: v for k, v in out.items() if k in params}
+    except Exception:
+        return kwargs if isinstance(kwargs, dict) else {}
+
+
 def call(name: str, **kwargs) -> dict:
     """Dispatch ``name`` against TOOLS -> {"ok","result","error","ms"}.
 
@@ -329,6 +369,9 @@ def call(name: str, **kwargs) -> dict:
     this function never raises, so the agent loop can trust every step.
     """
     try:
+        spec = TOOLS.get(str(name or ""))
+        if isinstance(spec, dict) and callable(spec.get("fn")):
+            kwargs = _fit_kwargs(str(name), spec["fn"], kwargs)
         return _dispatch(TOOLS, name, kwargs)
     except Exception as e:  # belt-and-braces: dispatch itself is safe
         return {"ok": False, "result": None,

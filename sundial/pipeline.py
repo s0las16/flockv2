@@ -913,4 +913,12 @@ def run(
     except Exception:
         pass
 
-    return adjudicate(pack)
+    adj = adjudicate(pack)
+    # Geo context for the report layer (plain attrs — asdict() ignores them).
+    try:
+        adj.anchor = anchor
+        adj.claim_place = claim_place
+        adj.osint_ranked = osint_vec.get("_ranked") or []
+    except Exception:
+        pass
+    return adj

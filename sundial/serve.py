@@ -17,6 +17,7 @@ import argparse
 import atexit
 import html
 import json
+import math
 import os
 import secrets
 import shutil
@@ -438,6 +439,65 @@ def _cleanup_all() -> None:
 atexit.register(_cleanup_all)
 
 
+def _report_extra(adj) -> dict:
+    """Build the geo rail payload: location summary, dark static map, chain.
+
+    Everything is best-effort — the report renders fine with any piece
+    missing, so no failure here may break the job.
+    """
+    extra: dict = {}
+    try:
+        from . import locate_summary
+
+        ev = list(getattr(getattr(adj, "pack", None), "evidence", []) or [])
+        anchor = getattr(adj, "anchor", None)
+        claim_place = getattr(adj, "claim_place", None)
+        summ = locate_summary.summarize(ev, anchor, claim_place)
+        if isinstance(summ, dict) and summ:
+            extra["loc_summary"] = summ
+            center = summ.get("anchor") or summ.get("predicted")
+            radius = (summ.get("predicted") or {}).get("radius_km")
+            zoom = 12 if summ.get("anchor") else max(
+                2, min(10, round(8 - math.log2(max(radius or 300, 50) / 300))))
+            try:  # interactive slippy map first
+                from . import map_viz
+
+                frag = map_viz.map_fragment(
+                    center, markers=summ.get("markers") or [],
+                    bands=summ.get("bands") or [], zoom=zoom)
+                if frag:
+                    extra["map_fragment"] = frag
+            except Exception:
+                pass
+            if "map_fragment" not in extra:
+                try:  # static PNG fallback (needs PIL + tile network)
+                    from . import map_tiles
+
+                    img = map_tiles.static_map_b64(
+                        center, markers=summ.get("markers") or [],
+                        bands=summ.get("bands") or [], zoom=zoom)
+                    if img:
+                        extra["map_static"] = img
+                except Exception:
+                    pass
+            try:
+                from . import osint_chain
+
+                fv, ranked = {}, getattr(adj, "osint_ranked", []) or []
+                for card in ev:
+                    if getattr(card, "type", "") == "osint_features":
+                        fv = (getattr(card, "data", None) or {}).get("vector") or {}
+                        break
+                chain = osint_chain.build_chain(fv, ranked)
+                if chain:
+                    extra["chain_html"] = osint_chain.chain_html(chain)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return extra
+
+
 def _worker(jobid: str, video_path: str, claim_time: str | None,
             claim_place: str | None) -> None:
     """Run the pipeline off the request thread; results land in _JOBS."""
@@ -452,7 +512,7 @@ def _worker(jobid: str, video_path: str, claim_time: str | None,
             claim_place=claim_place,
             workdir=os.path.join(job["dir"], "frames"),
         )
-        render_html(adj, job["report"])
+        render_html(adj, job["report"], extra=_report_extra(adj))
         with _LOCK:
             job["verdict"] = getattr(adj.verdict, "value", str(adj.verdict))
             job["confidence"] = float(adj.confidence)

@@ -109,10 +109,11 @@ def _norm_conditions(c: dict) -> dict:
 
 
 _TS_PATTERNS = [
-    # 17.10.2026 08:00:02 / 17-10-2026 08:00
-    re.compile(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})\D{0,4}(\d{1,2}):(\d{2})(?::(\d{2}))?"),
-    # 2026-10-17 08:00:02 / 2026/10/17T08:00
+    # 2026-10-17 08:00:02 / 2026/10/17T08:00 — tried first: a dd.mm.yy
+    # pattern would otherwise match the "26-10-17" tail of the ISO date.
     re.compile(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})\D{0,4}(\d{1,2}):(\d{2})(?::(\d{2}))?"),
+    # 17.10.2026 08:00:02 / 17-10-2026 08:00 / 17.10.26 12:30 (dd.mm.yy)
+    re.compile(r"(?<!\d)(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\D{0,4}(\d{1,2}):(\d{2})(?::(\d{2}))?"),
 ]
 # Bare clock like "08:00" — usable for time-of-day only.
 _TS_TIME_ONLY = re.compile(r"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b")
@@ -125,12 +126,15 @@ def _parse_overlay_time(s: str) -> tuple[datetime | None, str | None]:
     """
     m = _TS_PATTERNS[0].search(s)
     if m:
-        d, mo, y, hh, mm, ss = m.groups()
+        y, mo, d, hh, mm, ss = m.groups()
         return datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss or 0)), "datetime"
     m = _TS_PATTERNS[1].search(s)
     if m:
-        y, mo, d, hh, mm, ss = m.groups()
-        return datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss or 0)), "datetime"
+        d, mo, y, hh, mm, ss = m.groups()
+        yi = int(y)
+        if yi < 100:
+            yi += 2000
+        return datetime(yi, int(mo), int(d), int(hh), int(mm), int(ss or 0)), "datetime"
     m = _TS_TIME_ONLY.search(s)
     if m:
         hh, mm, ss = m.groups()
@@ -181,11 +185,20 @@ def _clock_evidence(overlays: list[str], claim_time_iso: str | None,
     else:  # time-of-day only
         delta_min = abs((dt - claim_dt.replace(year=2000, month=1, day=1))
                         .total_seconds()) / 60.0
-    if delta_min <= 45:
-        verdict, conf = ClaimVerdict.SUPPORTS, 0.85
+    if gran == "datetime" and dt.date() != claim_dt.date():
+        verdict, conf = ClaimVerdict.CONTRADICTS, 0.9
+        note = f"camera overlay reads {raw} — different date than claimed"
+    elif delta_min <= 45:
+        # Full date+time overlays are strong; a bare clock string is easy to
+        # misread, so it can never carry a SUPPORTS verdict on its own.
+        if gran == "datetime":
+            verdict, conf = ClaimVerdict.SUPPORTS, 0.85
+        else:
+            verdict, conf = ClaimVerdict.INCONCLUSIVE, 0.4
         note = f"camera overlay reads {raw} — matches the claimed time"
     elif delta_min >= 90:
-        verdict, conf = ClaimVerdict.CONTRADICTS, 0.9
+        verdict = ClaimVerdict.CONTRADICTS
+        conf = 0.9 if gran == "datetime" else 0.5
         note = (f"camera overlay reads {raw} but claim is "
                 f"{claim_dt.isoformat()} — {delta_min:.0f} min off")
     else:

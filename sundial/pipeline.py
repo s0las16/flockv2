@@ -185,20 +185,19 @@ def _clock_evidence(overlays: list[str], claim_time_iso: str | None,
     else:  # time-of-day only
         delta_min = abs((dt - claim_dt.replace(year=2000, month=1, day=1))
                         .total_seconds()) / 60.0
-    if gran == "datetime" and dt.date() != claim_dt.date():
+    if gran != "datetime":
+        # A bare clock string carries no date anchor and the VLM fabricates
+        # them readily — report it, but never let it carry a verdict.
+        verdict, conf = ClaimVerdict.INCONCLUSIVE, 0.3
+        note = f"overlay clock reads {raw} (time only — can't date the clip)"
+    elif dt.date() != claim_dt.date():
         verdict, conf = ClaimVerdict.CONTRADICTS, 0.9
         note = f"camera overlay reads {raw} — different date than claimed"
     elif delta_min <= 45:
-        # Full date+time overlays are strong; a bare clock string is easy to
-        # misread, so it can never carry a SUPPORTS verdict on its own.
-        if gran == "datetime":
-            verdict, conf = ClaimVerdict.SUPPORTS, 0.85
-        else:
-            verdict, conf = ClaimVerdict.INCONCLUSIVE, 0.4
+        verdict, conf = ClaimVerdict.SUPPORTS, 0.85
         note = f"camera overlay reads {raw} — matches the claimed time"
     elif delta_min >= 90:
-        verdict = ClaimVerdict.CONTRADICTS
-        conf = 0.9 if gran == "datetime" else 0.5
+        verdict, conf = ClaimVerdict.CONTRADICTS, 0.9
         note = (f"camera overlay reads {raw} but claim is "
                 f"{claim_dt.isoformat()} — {delta_min:.0f} min off")
     else:
@@ -273,7 +272,7 @@ def run(
     overlay_frames: list[str] = []
     observations: dict = {}
     conditions_list: list[dict] = []
-    sun_elev: float | None = None
+    sun_elevs: list[float] = []
 
     if frames and use_vlm and os.environ.get("COSMOS_BASE_URL"):
         try:
@@ -288,13 +287,14 @@ def run(
                 obs = cosmos.locate_shadow(f)
                 if obs:
                     pack.add(perception.to_evidence(f, obs))
-                    if sun_elev is None:
-                        if f not in dets_cache:
-                            try:
-                                dets_cache[f] = perception.detect_objects(f)
-                            except Exception:
-                                dets_cache[f] = []
-                        sun_elev = _sun_elevation_deg(obs, dets_cache[f])
+                    if f not in dets_cache:
+                        try:
+                            dets_cache[f] = perception.detect_objects(f)
+                        except Exception:
+                            dets_cache[f] = []
+                    elev = _sun_elevation_deg(obs, dets_cache[f])
+                    if elev is not None:
+                        sun_elevs.append(elev)
 
                 txt = cosmos.read_scene_text(f)
                 if txt:
@@ -369,13 +369,18 @@ def run(
         except Exception as e:
             _note(pack, "weather", e)
 
-        if sun_elev is not None:
+        if sun_elevs:
             try:
                 from . import solar
                 claimed_utc, tz_note = _claimed_utc(lat, lon, claim_time)
+                # Median over frames — single-frame point picks are noisy at
+                # the small object sizes these cams resolve.
+                s = sorted(sun_elevs)
+                sun_elev = s[len(s) // 2] if len(s) % 2 else (s[len(s) // 2 - 1] + s[len(s) // 2]) / 2
                 ev = solar.solar_evidence(lat, lon, claimed_utc, sun_elev)
                 ev.data["claim_tz_note"] = tz_note
                 ev.data["sun_elevation_source"] = "shadow/object pixel ratio"
+                ev.data["sun_elevations_deg"] = [round(e, 1) for e in sun_elevs]
                 pack.add(ev)
             except Exception as e:
                 _note(pack, "solar", e)

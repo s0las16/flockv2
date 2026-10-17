@@ -1,0 +1,6 @@
+pysolar>=0.10
+ultralytics>=8.3.0
+openai>=1.40.0
+requests>=2.31.0
+Pillow>=10.0.0
+weave>=0.51.0

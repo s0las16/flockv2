@@ -109,10 +109,19 @@ def test_solar_evidence_contradicts():
     assert ev.data["elevation_error_deg"] > ev.data["tolerances_deg"]["elevation"]
 
 
-def test_solar_evidence_nighttime_inconclusive():
+def test_solar_evidence_nighttime_claim_contradicts():
+    # Daylight shadow measurement + a claim deep enough into night that the
+    # sun is below the horizon is a contradiction, not inconclusive.
     obs = sun_position(LAT, LON, datetime(2025, 6, 15, 8, 30, tzinfo=timezone.utc))
     ev = solar_evidence(LAT, LON, "2025-06-15T02:30:00+00:00",
                         round(obs["elevation_deg"], 1))
+    assert ev.verdict == ClaimVerdict.CONTRADICTS, ev.summary
+
+
+def test_solar_evidence_twilight_edge_inconclusive():
+    # Claim sits in civil twilight (-6..0 deg): shadows can persist just
+    # after sunset, so we can't call it either way.
+    ev = solar_evidence(LAT, LON, "2025-06-15T20:45:00+00:00", 35.0)
     assert ev.verdict == ClaimVerdict.INCONCLUSIVE, ev.summary
 
 

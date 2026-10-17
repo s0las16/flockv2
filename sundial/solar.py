@@ -127,12 +127,25 @@ def solar_evidence(
         "azimuth_convention": "0..360 deg clockwise from true north (pysolar)",
     }
 
-    if expected["elevation_deg"] < 0:
-        # sun below horizon at the claimed moment — can't compare with a
-        # daylight observation, and we don't call a night photo a lie
+    if expected["elevation_deg"] < -6:
+        # Claim puts the sun well below the horizon (past civil twilight),
+        # but we measured a real cast shadow — only possible in daylight.
+        below = -expected["elevation_deg"]
         return Evidence(
             type="solar",
-            summary=(f"claimed {claimed:%H:%M} UTC is nighttime "
+            summary=(f"clip shows a cast shadow (sun ≈{observed_elevation_deg:.0f}° up) "
+                     f"but claimed {claimed:%H:%M} UTC puts the sun "
+                     f"{below:.0f}° below the horizon"),
+            verdict=ClaimVerdict.CONTRADICTS,
+            confidence=0.9 if below >= 12 else 0.7,
+            data={**data, "windows_utc": []},
+        )
+    if expected["elevation_deg"] < 0:
+        # Twilight edge: shadows can persist just after sunset — can't
+        # cleanly call it either way.
+        return Evidence(
+            type="solar",
+            summary=(f"claimed {claimed:%H:%M} UTC is twilight "
                      f"(sun {expected['elevation_deg']:.1f}°); solar check inconclusive"),
             verdict=ClaimVerdict.INCONCLUSIVE,
             confidence=0.3,

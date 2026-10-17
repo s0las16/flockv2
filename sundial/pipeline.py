@@ -55,7 +55,20 @@ def _resolve_coords(claim_place: str | None) -> tuple[float | None, float | None
     cands = geo.geocode(claim_place)
     if not cands:
         return None, None, f"could not geocode claimed place {claim_place!r}"
-    return cands[0].lat, cands[0].lon, f"geocoded claim to {cands[0].display_name!r}"
+    c0 = cands[0]
+    note = f"geocoded claim to {c0.display_name!r}"
+    if len(cands) > 1:
+        # Conflicting/ambiguous place names ("London France") resolve to
+        # the top hit silently — surface it so the card explains the jump.
+        try:
+            gap = float(getattr(c0, "score", 1) or 0) - float(
+                getattr(cands[1], "score", 0) or 0)
+            if gap < 0.3:
+                note = (f"ambiguous claim — resolved to {c0.display_name!r}"
+                        f" (next: {cands[1].display_name!r})")
+        except Exception:
+            pass
+    return c0.lat, c0.lon, note
 
 
 def _sun_elevation_deg(shadow_obs: dict, detections: list[dict],
@@ -760,6 +773,15 @@ def run(
         pack.add(geotips.tip_evidence(obs_for_tips, claimed_cc))
     except Exception:
         pass
+    try:  # CLIP country prior — zero-shot image->country gallery scoring;
+        # lazy: only when open_clip+torch are installed (the VM env)
+        from . import clip_geo
+        if clip_geo.available():
+            prior = clip_geo.geo_prior(frames[:6], top_k=8)
+            if prior:
+                pack.add(clip_geo.clip_evidence(prior, claimed_cc))
+    except Exception:
+        pass
     try:
         from . import osint as _osint
         ev = _osint.osint_evidence(
@@ -872,6 +894,33 @@ def run(
             pack.add(video_meta.video_meta_evidence(vmeta, claim_time, anchor))
     except Exception:
         pass
+    try:  # EXIF/ISO6709 geotag — the only metadata field that geolocates
+        from . import exif_gps
+        gps = exif_gps.extract_gps(video_path)
+        if gps is None and frames:
+            gps = exif_gps.extract_gps(frames[0])
+        ev = exif_gps.gps_evidence(gps, anchor=anchor, claim_place=claim_place)
+        if ev is not None:
+            pack.add(ev)
+    except Exception:
+        pass
+    try:  # container signature vs the device the claim names ("shot on my
+        # iPhone") — Apple handlers vs an Android claim is a story problem
+        from . import cam_model
+        _dev = None
+        _raw = (getattr(claim, "raw", "") or "").lower()
+        for _d in ("iphone", "ipad", "android", "samsung", "pixel", "gopro",
+                   "dji", "canon", "nikon", "dashcam", "screen recording"):
+            if _d in _raw:
+                _dev = _d
+                break
+        meta_all = dict(meta or {})
+        meta_all.update(vmeta or {})
+        ev = cam_model.device_evidence(meta_all, claimed_device=_dev)
+        if ev is not None:
+            pack.add(ev)
+    except Exception:
+        pass
     try:
         from . import shadow_consistency
         per_frame = shadow_consistency.shadow_angles_per_frame(shadow_obs_pairs)
@@ -976,6 +1025,21 @@ def run(
                     pack.add(ev)
         except Exception:
             pass
+        # Shadow geometry -> lat/lon bands: sun elevation constrains
+        # latitude, azimuth constrains longitude — an independent
+        # geometric check on the same frames.
+        try:
+            from . import shadow_geo
+            ev = shadow_geo.evidence_from_observations(
+                shadow_obs_pairs=shadow_obs_pairs,
+                sun_elevs=sun_elevs,
+                shadow_angles=shadow_angles,
+                claimed_utc=_claimed_utc(lat, lon, claim_time, arch)[0],
+                anchor=anchor)
+            if ev is not None:
+                pack.add(ev)
+        except Exception:
+            pass
     elif claim_time or claim_place:
         _note(pack, "weather+solar",
               "need both resolvable coordinates and a claimed time")
@@ -995,12 +1059,32 @@ def run(
     except Exception:
         pass
 
+    # Agent investigation loop — plans a few tool calls against the gaps
+    # in the accumulated pack (rules planner: fully offline, deterministic;
+    # an llm_fn can be passed once a client is available). The transcript
+    # becomes a provenance card + the report's investigation fragment.
+    agent_run = None
+    try:
+        from . import agent_ctx, agent_loop, transcript_card
+        brief = agent_ctx.build_context(
+            pack.evidence,
+            {"time_iso": claim_time, "place": claim_place,
+             "lat": lat, "lon": lon, "cc": claimed_cc},
+            ranked=osint_vec.get("_ranked"))
+        agent_run = agent_loop.run_loop(brief, max_steps=6, budget_s=30)
+        ev = transcript_card.card(agent_run)
+        if ev is not None:
+            pack.add(ev)
+    except Exception:
+        pass
+
     adj = adjudicate(pack)
     # Geo context for the report layer (plain attrs — asdict() ignores them).
     try:
         adj.anchor = anchor
         adj.claim_place = claim_place
         adj.osint_ranked = osint_vec.get("_ranked") or []
+        adj.agent_run = agent_run
     except Exception:
         pass
     return adj

@@ -100,7 +100,7 @@ def _to_candidate(item: dict) -> GeoCandidate | None:
 
 def geocode(query: str) -> list[GeoCandidate]:
     """Geocode a free-text string. Returns [] when nothing matches."""
-    q = (query or "").strip()
+    q = str(query or "").strip()
     if not q:
         return []
     _rate_limit()

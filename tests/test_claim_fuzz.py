@@ -85,6 +85,7 @@ _KNOWN = {
                               "São Paulo, BR", 0.8),
     "東京": GeoCandidate("Tokyo", 35.6762, 139.6503, "JP", "東京, JP", 0.8),
     "paris": GeoCandidate("Paris", 48.8566, 2.3522, "FR", "Paris, FR", 0.8),
+    "france": GeoCandidate("France", 46.2276, 2.2137, "FR", "France", 0.85),
 }
 
 
@@ -97,10 +98,7 @@ def _fake_geocode(query):
         return []
     if not q:
         return []
-    for key, cand in _KNOWN.items():
-        if key in q:
-            return [cand]
-    return []
+    return [cand for key, cand in _KNOWN.items() if key in q]
 
 
 GEOCODE_CALLS: list = []
@@ -117,7 +115,7 @@ def _strict_geocode_gate(query):
     the real function does — that crash precedes any request. Bytes pass
     `.strip()`; the real code then sends them to requests (verified live:
     b"54.47,9.05" geocoded fine), so we decode and emulate a normal lookup."""
-    q = (query or "").strip()           # AttributeError for int/list/dict/...
+    q = str(query or "").strip()       # post-fix: non-str coerced, no raise
     if not q:
         return []
     if isinstance(q, bytes):
@@ -476,8 +474,7 @@ def test_fixed_fallback_place_has_no_length_cap():
     assert r["place"] is None or len(r["place"]) <= 60
 
 
-@_known_bug
-def test_xfail_date_only_claim_survives_to_args():
+def test_fixed_date_only_claim_survives_to_args():
     """'2025-6-15' parses a day_offset but no clock -> time_iso None ->
     claim_to_args drops the date entirely; run() then skips all time checks."""
     r = claim_parser.parse_claim_text("2025-6-15", _FIXED_NOW)
@@ -507,8 +504,7 @@ def test_fixed_tz_suffix_silently_stripped():
     assert not bad
 
 
-@_known_bug
-def test_xfail_conflicting_place_resolves_without_ambiguity_note():
+def test_fixed_conflicting_place_resolves_without_ambiguity_note():
     """'London France' is contradictory; _resolve_coords takes cands[0]
     silently — no ambiguity signal in the note."""
     with mock.patch.object(geo, "geocode", side_effect=_fake_geocode):
@@ -518,8 +514,7 @@ def test_xfail_conflicting_place_resolves_without_ambiguity_note():
     assert lat is None or "ambig" in note.lower() or "conflict" in note.lower()
 
 
-@_known_bug
-def test_xfail_coord_literal_in_claim_text_is_dropped():
+def test_fixed_coord_literal_in_claim_text_is_dropped():
     """Judges can pass coords to run(claim_place=...) but the NL parser drops
     them: 'filmed at 54.47,9.05' -> place None (no [a-zA-Z] letter)."""
     r = claim_parser.parse_claim_text("filmed at 54.47,9.05", _FIXED_NOW)
@@ -528,8 +523,7 @@ def test_xfail_coord_literal_in_claim_text_is_dropped():
     assert r["place"] is not None
 
 
-@_known_bug
-def test_xfail_non_string_inputs_crash_public_api():
+def test_fixed_non_string_inputs_crash_public_api():
     """parse_claim_text/claim_to_args raise AttributeError/TypeError on
     non-str input (untyped signature). Current callers pass str / wrap in
     try, so dormant — but the public API itself is not defensive."""

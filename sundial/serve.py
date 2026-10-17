@@ -532,6 +532,15 @@ def _report_extra(adj) -> dict:
                     extra["chain_html"] = osint_chain.chain_html(chain)
             except Exception:
                 pass
+            try:  # agent investigation transcript -> own rail block
+                from . import transcript_card
+
+                th = transcript_card.transcript_html(
+                    getattr(adj, "agent_run", None))
+                if th:
+                    extra["chain_html"] = (extra.get("chain_html") or "") + th
+            except Exception:
+                pass
     except Exception:
         pass
     return extra

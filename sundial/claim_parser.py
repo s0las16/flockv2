@@ -229,8 +229,15 @@ def _place_fallback(text: str, cov: list[tuple[int, int]]) -> str | None:
         if len(toks) <= 2 and all(_RESIDUE_TOK.match(t) for t in toks):
             continue  # e.g. "two weeks", "next", "15 pm"
         segs.append(seg)
+    if not segs:  # a bare "lat,lon" literal is a place too ("at 54.47,9.05")
+        m = _RE_LATLON.search(cleaned)
+        if m:
+            la, lo = float(m.group(1)), float(m.group(2))
+            if abs(la) <= 90 and abs(lo) <= 180:
+                return f"{la:g},{lo:g}"
+        return None
     joined = ", ".join(segs)
-    return joined if segs and len(joined) <= 60 else None
+    return joined if len(joined) <= 60 else None
 
 
 # Uncovered leftovers that must never become a place: ISO 'T' separators,
@@ -249,6 +256,7 @@ _RESIDUE_TOK = re.compile(
     r"seven|eight|nine|ten|few|couple)$",
     re.IGNORECASE,
 )
+_RE_LATLON = re.compile(r"(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)")
 
 
 def _title(raw: str) -> str:
@@ -265,13 +273,16 @@ def _title(raw: str) -> str:
     return " ".join(out)
 
 
-def parse_claim_text(text: str, now: datetime | None = None) -> dict:
+def parse_claim_text(text, now: datetime | None = None) -> dict:
     """Parse a typed claim into place + naive-local ISO time fields.
 
     Keys: place / place_raw (capitalized vs as-typed span), time_iso (naive,
     no tz — pipeline.run compares it to local clock reads), day_offset,
     time_of_day ("HH:MM"), confidence 0..1, raw (input echoed back).
     """
+    raw_in = text  # echo verbatim in result["raw"]
+    if not isinstance(text, str):
+        text = "" if text is None else str(text)
     now = (now or datetime.now()).replace(tzinfo=None)
     result: dict = {
         "place": None,
@@ -280,7 +291,7 @@ def parse_claim_text(text: str, now: datetime | None = None) -> dict:
         "day_offset": None,
         "time_of_day": None,
         "confidence": 0.0,
-        "raw": text,
+        "raw": raw_in,
     }
     if not text or not text.strip():
         return result
@@ -390,10 +401,19 @@ def parse_claim_text(text: str, now: datetime | None = None) -> dict:
     return result
 
 
-def claim_to_args(text: str) -> tuple[str | None, str | None]:
+def claim_to_args(text) -> tuple[str | None, str | None]:
     """(claim_time, claim_place) — pipeline.run kwargs, verbatim."""
     r = parse_claim_text(text)
-    return r["time_iso"], r["place"]
+    t_iso = r["time_iso"]
+    if t_iso is None and r.get("day_offset") is not None:
+        # A date-only claim ("2025-6-15") anchors to noon that day — the
+        # documented convention for "sometime during the day" claims; it
+        # keeps weather/moon/sun checks meaningful instead of dropping
+        # the date entirely.
+        now = datetime.now()
+        day = now.date() + timedelta(days=r["day_offset"])
+        t_iso = f"{day.isoformat()}T12:00"
+    return t_iso, r["place"]
 
 
 if __name__ == "__main__":

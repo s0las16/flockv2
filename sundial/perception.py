@@ -368,6 +368,31 @@ class CosmosClient:
         except Exception:
             return {}
 
+    def scene_features(self, frame_path: str) -> dict:
+        """->{architecture, vegetation, terrain, road_furniture, sign_style,
+        lane_markings_color, climate_cues, vehicles, landmark_candidates}.
+
+        OSINT-style feature extraction — describes WHAT is visible so the
+        geo-match stage can score candidate places; never asks for a guess.
+        """
+        try:
+            from .osint_prompts import OSINT_SCENE_PROMPT
+            return self._json(frame_path, OSINT_SCENE_PROMPT)
+        except Exception:
+            return {}
+
+    def geoguess(self, frame_path: str) -> dict:
+        """->{country_guess, region_guess, confidence, reasoning} or {}.
+
+        Quarantined signal: the model's direct place guess. Only reaches a
+        verdict via geoguess.aggregate_guesses' multi-frame stability check.
+        """
+        try:
+            from .osint_prompts import GEOGUESS_PROMPT
+            return self._json(frame_path, GEOGUESS_PROMPT)
+        except Exception:
+            return {}
+
 
 # --------------------------------------------------------------------------
 # Shadow geometry

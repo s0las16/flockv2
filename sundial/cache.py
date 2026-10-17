@@ -21,7 +21,8 @@ _DISABLE_ENV = "SUNDIAL_NO_CACHE"
 # CosmosClient methods that are pure (frame_path) -> JSON-able and safe to
 # memoize. Keyed on the *prompt text* (not the method name) so edits to a
 # prompt in .prompts naturally invalidate stale entries.
-_METHODS = ("locate_shadow", "read_scene_text", "describe_conditions", "read_clock_overlay")
+_METHODS = ("locate_shadow", "read_scene_text", "describe_conditions", "read_clock_overlay",
+            "scene_features", "geoguess")
 
 
 def _disabled() -> bool:
@@ -37,6 +38,7 @@ def _method_prompts() -> dict:
     """
     try:
         from .prompts import CLOCK_PROMPT, CONDITIONS_PROMPT, SHADOW_PROMPT, TEXT_PROMPT
+        from .osint_prompts import GEOGUESS_PROMPT, OSINT_SCENE_PROMPT
     except Exception:
         return {name: name for name in _METHODS}
     return {
@@ -44,6 +46,8 @@ def _method_prompts() -> dict:
         "read_scene_text": TEXT_PROMPT,
         "describe_conditions": CONDITIONS_PROMPT,
         "read_clock_overlay": CLOCK_PROMPT,
+        "scene_features": OSINT_SCENE_PROMPT,
+        "geoguess": GEOGUESS_PROMPT,
     }
 
 

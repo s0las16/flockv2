@@ -188,6 +188,92 @@ def _parse_overlay_time(s: str) -> tuple[datetime | None, str | None]:
     return None, None
 
 
+def _consensus_pairs(pairs: list[tuple[str, str]]) -> list[str]:
+    """Strings seen in >=2 distinct frames — the texts/markings consensus
+    rule. Returns first-sighting-ordered unique strings."""
+    seen: dict[str, set] = {}
+    order: list[str] = []
+    for f, t in pairs:
+        k = (t or "").strip().lower()
+        if not k:
+            continue
+        if k not in seen:
+            seen[k] = set()
+            order.append(k)
+        seen[k].add(f)
+    return [k for k in order if len(seen[k]) >= 2]
+
+
+# Country-indicative tokens readable in consensus sign/overlay text —
+# dial codes, ccTLDs, currency symbols, legal-form suffixes. Pure-regex,
+# zero extra API calls; positive-only hints (absence says nothing).
+_DIAL_CC = {
+    "1": "US", "44": "GB", "49": "DE", "33": "FR", "39": "IT", "34": "ES",
+    "31": "NL", "43": "AT", "41": "CH", "48": "PL", "46": "SE", "47": "NO",
+    "45": "DK", "353": "IE", "351": "PT", "30": "GR", "90": "TR", "7": "RU",
+    "380": "UA", "81": "JP", "82": "KR", "86": "CN", "91": "IN", "61": "AU",
+    "64": "NZ", "55": "BR", "52": "MX", "27": "ZA", "971": "AE", "966": "SA",
+    "972": "IL", "65": "SG", "60": "MY", "66": "TH", "84": "VN", "62": "ID",
+    "63": "PH", "852": "HK", "886": "TW", "20": "EG", "234": "NG", "254": "KE",
+    "54": "AR", "56": "CL", "57": "CO", "32": "BE", "420": "CZ", "36": "HU",
+    "40": "RO", "359": "BG", "385": "HR", "386": "SI", "421": "SK",
+    "372": "EE", "371": "LV", "370": "LT", "358": "FI", "354": "IS",
+}
+_TLD_CC = {
+    "co.uk": "GB", "uk": "GB", "de": "DE", "fr": "FR", "it": "IT", "es": "ES",
+    "nl": "NL", "at": "AT", "ch": "CH", "pl": "PL", "se": "SE", "no": "NO",
+    "dk": "DK", "ie": "IE", "pt": "PT", "gr": "GR", "co.jp": "JP", "jp": "JP",
+    "co.kr": "KR", "kr": "KR", "cn": "CN", "co.in": "IN", "in": "IN",
+    "com.au": "AU", "au": "AU", "co.nz": "NZ", "nz": "NZ", "com.br": "BR",
+    "br": "BR", "mx": "MX", "za": "ZA", "ae": "AE", "sa": "SA", "il": "IL",
+    "sg": "SG", "my": "MY", "th": "TH", "vn": "VN", "id": "ID", "ph": "PH",
+    "hk": "HK", "tw": "TW", "ca": "CA", "ru": "RU", "ua": "UA", "tr": "TR",
+    "be": "BE", "cz": "CZ", "hu": "HU", "ro": "RO", "bg": "BG", "hr": "HR",
+    "ee": "EE", "lv": "LV", "lt": "LT", "fi": "FI", "is": "IS",
+}
+_CURRENCY_CC = {"£": "GB", "¥": "JP", "₹": "IN", "₩": "KR", "฿": "TH",
+                "₺": "TR", "₽": "RU", "zł": "PL"}
+_LEGAL_CC = {
+    "gmbh": "DE", "ltd": "GB", "llc": "US", "inc": "US", "sarl": "FR",
+    "sas": "FR", "s.a.": None, "spa": "IT", "srl": "IT", "bv": "NL",
+    "b.v.": "NL", "ag": "CH", "pty": "AU", "sdn bhd": "MY", "kk": "JP",
+    "oy": "FI", "ab": "SE", "aps": "DK", "lda": "PT", "sl": "ES",
+    "ooo": "RU", "sp. z o.o.": "PL", "kft": "HU", "sro": "CZ", "doo": "HR",
+    "ead": "BG", "ou": "EE", "sia": "LV", "uab": "LT",
+}
+_TLD_RE = re.compile(
+    r"\.(co\.uk|co\.jp|co\.kr|co\.in|com\.au|co\.nz|com\.br|sp\. z o\.o\.|[a-z]{2})\b")
+
+
+def _text_geo_hints(texts: list[str]) -> dict:
+    """Scan consensus text for country-indicative tokens.
+
+    -> {"ccs": sorted candidate ccs, "hits": [human-readable hit notes]}
+    """
+    blob = " ".join(t for t in texts if t).lower()
+    ccs: list[str] = []
+    hits: list[str] = []
+
+    def _add(code, note):
+        if code and code not in ccs:
+            ccs.append(code)
+            hits.append(note)
+
+    for m in re.finditer(r"\+(\d{1,3})(?=[\s\-]?\d)", blob):
+        code = _DIAL_CC.get(m.group(1))
+        _add(code, f"dial +{m.group(1)} -> {code}")
+    for m in _TLD_RE.finditer(blob):
+        code = _TLD_CC.get(m.group(1))
+        _add(code, f"tld .{m.group(1)} -> {code}")
+    for sym, code in _CURRENCY_CC.items():
+        if sym in blob:
+            _add(code, f"currency {sym} -> {code}")
+    for form, code in _LEGAL_CC.items():
+        if code and re.search(r"\b" + re.escape(form) + r"\b", blob):
+            _add(code, f"legal form '{form}' -> {code}")
+    return {"ccs": ccs, "hits": hits}
+
+
 def _clock_evidence(overlay_pairs: list[tuple[str, str]], claim_time_iso: str | None) -> "Evidence":
     """Compare burned-in camera timestamps against the claimed local time.
 
@@ -314,6 +400,20 @@ def run(
             raw=f"filmed at {claim_time or 'unknown time'}, {claim_place or 'unknown place'}",
         ),
     )
+    try:
+        # Run audit trail — stage timings land in the report/sidecar.
+        from . import run_stats
+        run_stats.reset()
+        run_stats.current().count("frames", 0)
+    except Exception:
+        pass
+    try:
+        # Memoize Nominatim lookups for the whole run — consensus-filtered
+        # texts often re-geocode the same strings across stages.
+        from . import geo as _geo, geocode_cache
+        _geo.geocode = geocode_cache.wrap_geocode(_geo.geocode)
+    except Exception:
+        pass
 
     # --- 0. claim sanity -----------------------------------------------------
     if claim_time:
@@ -346,14 +446,34 @@ def run(
         frames = stills.frames_for_input(video_path, workdir)[:24]
         if not frames:
             frames = perception.extract_frames(video_path, workdir, fps=1.0, max_frames=24)
+        try:
+            run_stats.current().count("frames", len(frames))
+        except Exception:
+            pass
     except Exception as e:
         _note(pack, "frames", e)
+
+    # Frame-quality triage — dark/blurry frames report a card and get
+    # filtered out of the VLM pick list (never the cited-frame list).
+    usable: list[str] | None = None
+    if frames:
+        try:
+            from . import frame_quality
+            scores = {f: frame_quality.frame_score(f) for f in frames}
+            usable = frame_quality.usable_frames(frames)
+            pack.add(frame_quality.quality_evidence(scores))
+        except Exception:
+            usable = None
 
     # --- 3. VLM observations (shadows, text, conditions) ---------------------
     texts: list[str] = []
     overlay_pairs: list[tuple[str, str]] = []  # (frame_path, overlay text)
     observations: dict = {}
     conditions_list: list[dict] = []
+    osint_blobs: list[dict] = []      # per-frame OSINT scene-feature dicts
+    geoguesses: list[dict] = []       # per-frame direct country guesses
+    shadow_obs_pairs: list[tuple[str, dict]] = []  # (frame, shadow obs)
+    marking_pairs: list[tuple[str, str]] = []      # (frame, marking text)
     sun_elevs: list[float] = []
     shadow_angles: list[float] = []  # shadow image-angle per frame, for heading
     dets_cache: dict[str, list[dict]] = {}
@@ -368,13 +488,17 @@ def run(
             except Exception:
                 pass
             try:
-                picks = perception.pick_shadow_frames(frames)[:max_vlm_frames]
+                pool = usable if usable else frames
+                picks = perception.pick_shadow_frames(pool)[:max_vlm_frames]
+                if not picks:
+                    picks = pool[:max_vlm_frames]
             except Exception:
                 picks = frames[:max_vlm_frames]
 
             cv_tilt: float | None = None
             for f in picks:
                 try:
+                    run_stats.current().count("vlm_calls", 6)
                     obs = cosmos.locate_shadow(f)
                     if obs:
                         # cv2 horizon tilt beats the VLM's guessed scalar when
@@ -390,6 +514,7 @@ def run(
                         if cv_tilt is not None:
                             obs = {**obs, "camera_tilt_deg": cv_tilt}
                         pack.add(perception.to_evidence(f, obs))
+                        shadow_obs_pairs.append((f, obs))
                         if f not in dets_cache:
                             try:
                                 dets_cache[f] = perception.detect_objects(f)
@@ -413,9 +538,8 @@ def run(
                         for k in ("driving_side", "sign_language", "plate_style"):
                             if not observations.get(k) and txt.get(k):
                                 observations[k] = txt[k]
-                        observations["road_markings"] = (
-                            observations.get("road_markings") or []
-                        ) + _as_str_list(txt.get("road_markings"))
+                        marking_pairs.extend(
+                            (f, m) for m in _as_str_list(txt.get("road_markings")))
 
                     cond = cosmos.describe_conditions(f)
                     if cond:
@@ -425,6 +549,14 @@ def run(
                     if clk:
                         overlay_pairs.extend(
                             (f, t) for t in _as_str_list(clk.get("overlay_timestamps")))
+
+                    # OSINT feature pass — scene cues + quarantined guess.
+                    feat = cosmos.scene_features(f)
+                    if feat:
+                        osint_blobs.append(feat)
+                    gg = cosmos.geoguess(f)
+                    if gg:
+                        geoguesses.append(gg)
                 except Exception:
                     continue  # one bad frame must not sink the rest
         except Exception as e:
@@ -478,7 +610,12 @@ def run(
 
     # --- 4. geolocation ------------------------------------------------------
     # Hallucination guard: only geocode strings seen in >=2 frames — invented
-    # sign text doesn't repeat across frames, real text does.
+    # sign text doesn't repeat across frames, real text does. Markings get
+    # the same rule: observations feeds consistency checks + cue scoring.
+    if marking_pairs:
+        markings = _consensus_pairs(marking_pairs)
+        if markings:
+            observations["road_markings"] = markings
     stable_texts: list[str] = []
     try:
         from collections import Counter
@@ -521,7 +658,174 @@ def run(
         except Exception:
             pass
 
-    # --- 4b. burned-in clock overlay vs claim ---------------------------------
+    # --- 4b. OSINT geo-matching -----------------------------------------------
+    # Scene features -> candidate countries -> weighted cue scoring. Each
+    # side-signal (landmarks, guesses, sign style, vegetation, POIs, wiki)
+    # emits its own card; osint.osint_evidence fuses them into the headline
+    # "does this scene match the claimed country" verdict.
+    osint_vec: dict = {}
+    claimed_cc: str | None = None
+    anchor = (lat, lon) if lat is not None and lon is not None else None
+    try:
+        from . import osint_features
+        merged_feats = osint_features.merge_features(osint_blobs)
+        if merged_feats.get("frames"):
+            pack.add(osint_features.features_evidence(merged_feats))
+        osint_vec = osint_features.feature_vector(merged_feats)
+        # Fold the text-stage observations into the vector for scoring.
+        for k in ("driving_side", "sign_language", "plate_style"):
+            if observations.get(k):
+                osint_vec[k] = observations[k]
+        # Markings get the same >=2-frame consensus as sign text — one
+        # frame's hallucinated "double yellow" must not score candidates.
+        if observations.get("road_markings"):
+            osint_vec["road_markings"] = observations["road_markings"]
+        # Country-indicative tokens in consensus text (dial codes, ccTLDs,
+        # currency, legal suffixes) — free high-specificity geo hint.
+        hints = _text_geo_hints(stable_texts)
+        if hints["ccs"]:
+            osint_vec["geocode_ccs"] = hints["ccs"]
+            osint_vec["country_indicators"] = hints["ccs"]
+            osint_vec["country_indicator_notes"] = hints["hits"]
+    except Exception:
+        pass
+    try:
+        if anchor:
+            from . import reverse_geo
+            claimed_cc = reverse_geo.claim_country_cc(claim_place, lat, lon)
+        if not claimed_cc and claim_place:
+            from . import geo as _g
+            c = _g.geocode(claim_place)
+            if c:
+                claimed_cc = getattr(c[0], "country_code", None)
+    except Exception:
+        pass
+    try:
+        if osint_vec or observations:
+            from . import match_score
+            ccs = {c for c in [claimed_cc] if c}
+            ccs |= set(osint_vec.get("geocode_ccs") or [])
+            ranked = match_score.score_candidates(
+                {**osint_vec, **{k: observations[k] for k in
+                 ("driving_side", "sign_language", "plate_style")
+                 if observations.get(k)}},
+                sorted(ccs) or ["US", "GB", "DE", "FR", "IT", "ES", "NL", "JP", "AU", "CA"])
+            if ranked:
+                pack.add(match_score.match_evidence(ranked, claimed_cc))
+                osint_vec["_ranked"] = ranked[:8]
+    except Exception:
+        pass
+    try:
+        from . import osint as _osint
+        ev = _osint.osint_evidence(
+            osint_vec, observations, anchor, claimed_cc,
+            per_frame_geoguesses=geoguesses or None,
+            claim_time_iso=claim_time)
+        if ev is not None:
+            pack.add(ev)
+    except Exception:
+        pass
+    try:
+        from . import landmarks
+        lnames = landmarks.consensus_landmarks(
+            [b.get("landmark_candidates") for b in osint_blobs
+             if isinstance(b, dict)])
+        if lnames:
+            places = landmarks.landmark_candidates_to_places(lnames)
+            pack.add(landmarks.landmark_evidence(lnames, places, anchor, claimed_cc))
+    except Exception:
+        pass
+    try:
+        from . import geoguess as _gg
+        if geoguesses:
+            pack.add(_gg.geoguess_evidence(
+                _gg.aggregate_guesses(geoguesses), claimed_cc))
+    except Exception:
+        pass
+    try:
+        from . import sign_style as _ss
+        ss_scores = _ss.sign_style_score(
+            (osint_vec.get("sign_style") or {}) if isinstance(osint_vec.get("sign_style"), dict) else {},
+            osint_vec.get("marking_colors"))
+        if ss_scores:
+            pack.add(_ss.sign_style_evidence(ss_scores, claimed_cc))
+    except Exception:
+        pass
+    try:
+        from . import veg_geo
+        if osint_vec.get("vegetation"):
+            pack.add(veg_geo.veg_evidence(
+                osint_vec["vegetation"], lat, claimed_cc))
+    except Exception:
+        pass
+    try:
+        from . import hemisphere, sun_side
+        sides = [sun_side.sun_side_from_conditions(c) for c in conditions_list]
+        side = sun_side.aggregate_sides(sides)
+        if side and claim_time:
+            pack.add(hemisphere.hemisphere_evidence(lat, lon, claim_time, side))
+    except Exception:
+        pass
+    # External cross-checks — only when the claim anchored to real coords.
+    if anchor:
+        names_for_lookup = (osint_vec.get("landmark_candidates") or stable_texts or [])[:6]
+        try:
+            from . import overpass
+            pois = overpass.nearby_pois(lat, lon)
+            if pois:
+                m = overpass.name_matches_nearby(pois, names_for_lookup)
+                pack.add(overpass.poi_evidence(m, True, anchor))
+        except Exception:
+            pass
+        try:
+            from . import wiki_places
+            titles = wiki_places.geo_search(lat, lon)
+            if titles:
+                m = wiki_places.match_named(titles, names_for_lookup)
+                pack.add(wiki_places.wiki_evidence(m, True, 10000))
+        except Exception:
+            pass
+        try:
+            from . import climate
+            if osint_vec.get("climate_cues"):
+                pack.add(climate.climate_evidence(
+                    lat, lon, osint_vec["climate_cues"]))
+        except Exception:
+            pass
+    try:
+        from . import camera_meta
+        meta = {}
+        if frames:
+            meta.update(camera_meta.frame_metadata(frames[0]) or {})
+        meta.update(camera_meta.video_metadata(video_path) or {})
+        if meta:
+            pack.add(camera_meta.meta_evidence(meta, claim_time, anchor))
+    except Exception:
+        pass
+    try:
+        from . import shadow_consistency
+        per_frame = shadow_consistency.shadow_angles_per_frame(shadow_obs_pairs)
+        if per_frame:
+            pack.add(shadow_consistency.consistency_evidence(per_frame))
+    except Exception:
+        pass
+    try:
+        from . import vss_lookup
+        keys = vss_lookup.list_segment_keys()
+        if keys:
+            pack.add(vss_lookup.vss_evidence(keys, claim_time))
+    except Exception:
+        pass
+    # Geo-family digest when the scene produced many geo cards.
+    try:
+        from . import dedupe_evidence
+        roll = dedupe_evidence.geo_rollup(pack.evidence)
+        if roll is not None:
+            pack.add(roll)
+    except Exception:
+        pass
+
+    # --- 4c. burned-in clock overlay vs claim ---------------------------------
     try:
         pack.add(_clock_evidence(overlay_pairs, claim_time))
     except Exception as e:
@@ -545,6 +849,13 @@ def run(
                     weather_obs, lat, lon, claim_time, archive=arch))
         except Exception as e:
             _note(pack, "weather", e)
+        # Timezone sanity — offline coord->zone table vs the archive's zone.
+        try:
+            from . import tz_check
+            pack.add(tz_check.tz_evidence(
+                lat, lon, (arch or {}).get("timezone"), claim_time))
+        except Exception:
+            pass
 
         if sun_elevs and applicability.get("shadows"):
             try:

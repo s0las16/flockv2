@@ -33,17 +33,40 @@ _TYPE_CHANNEL = {
     "clock": "visual",       # burned-in overlay timestamps parsed from image
     "geo-text": "visual",    # sign/place text read from frames
     "overlay": "visual",
-    "vlm": "visual",
+    # "vlm" evidence only exists as a stage-failure NOTE (no frames were
+    # observed) — tagging it visual would falsely claim pixel observation.
     # --- external: API / archive lookups --------------------------------
     "weather": "external",   # Open-Meteo historical archive
     "geo": "external",       # Nominatim geocoding verdict on sign text
     "geo-api": "external",
     "geo-resolve": "external",
     "archive": "external",
+    "climate": "external",   # climate normals API
+    "poi": "external",       # Overpass nearby-POI check
+    "wiki": "external",
+    "wiki_landmark": "external",
+    "metadata": "derived",   # EXIF/ffprobe — file-carried, easily forged
     # --- derived: computed from other signals ----------------------------
     "solar": "derived",      # ephemeris vs measured shadow elevation
     "azimuth": "derived",
     "scene": "derived",
+    "hemisphere": "derived",
+    "shadow_consistency": "derived",
+    "osint": "derived",      # fused cue scoring over visual observations
+    "geoguess": "derived",   # quarantined VLM guess
+    "landmark": "derived",
+    "sign_style": "derived",
+    "vegetation": "derived",
+    "language": "derived",
+    "plate_style": "derived",
+    "osint_features": "visual",
+    "geo_match": "derived",
+    "geo_rollup": "derived",
+    "timezone": "derived",
+    "frames": "derived",     # frame quality triage
+    "corpus": "external",    # VAST segment index cross-reference
+    "lunar": "derived",
+    "audio": "visual",
     # --- ground truth ----------------------------------------------------
     "ground-truth": "ground-truth",
     "ground_truth": "ground-truth",

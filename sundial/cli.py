@@ -67,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--video", help="path to the clip under scrutiny")
     ap.add_argument("--claim-time", help="ISO datetime the clip claims (local to place)")
     ap.add_argument("--claim-place", help='claimed location: text or "lat,lon"')
+    ap.add_argument("--claim",
+                    help='natural-language claim, e.g. "filmed Tuesday 3pm in London" '
+                         '(parsed into --claim-time/--claim-place; explicit flags win)')
     ap.add_argument("--out", default="verdict.html", help="HTML report output path")
     ap.add_argument("--frames-dir", default=".sundial_frames")
     ap.add_argument("--no-vlm", action="store_true", help="skip Cosmos VLM calls")
@@ -81,6 +84,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.no_cache:
         os.environ["SUNDIAL_NO_CACHE"] = "1"
+
+    if args.claim:
+        try:
+            from . import claim_parser
+            pt, pp = claim_parser.claim_to_args(args.claim)
+            if not args.claim_time and pt:
+                args.claim_time = pt
+            if not args.claim_place and pp:
+                args.claim_place = pp
+        except Exception:
+            pass  # unparseable claim text: explicit flags still apply
 
     if args.serve:
         from .serve import serve
@@ -124,7 +138,14 @@ def main(argv: list[str] | None = None) -> int:
     # JSON sidecar next to the report — the same data a UI would consume.
     json_path = os.path.splitext(args.out)[0] + ".json"
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(adj.to_dict(), f, indent=2, default=str)
+        data = adj.to_dict()
+        try:
+            from . import run_stats
+            data["run_stats"] = run_stats.to_sidecar(
+                run_stats.current().snapshot())
+        except Exception:
+            pass
+        json.dump(data, f, indent=2, default=str)
     print(json.dumps({
         "verdict": adj.verdict.value,
         "confidence": adj.confidence,

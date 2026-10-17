@@ -37,6 +37,24 @@ _ICONS = {
     "lunar": '<svg viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10z"/></svg>',
     "audio": '<svg viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4" stroke-linecap="round"/></svg>',
     "azimuth": '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><path d="M12 12l4.5-5M12 12l-4 4" stroke-linecap="round"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>',
+    "osint": '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M15.5 15.5L20 20" stroke-linecap="round"/><circle cx="11" cy="11" r="2.2"/></svg>',
+    "osint_features": '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M15.5 15.5L20 20" stroke-linecap="round"/></svg>',
+    "geoguess": '<svg viewBox="0 0 24 24"><circle cx="12" cy="11" r="7.5"/><path d="M4.5 11h15M12 3.5c-3 3-3 12 0 15M12 3.5c3 3 3 12 0 15"/></svg>',
+    "landmark": '<svg viewBox="0 0 24 24"><path d="M5 20h14M6 20V10l2-2v12M10 20V6l2-2 2 2v14M16 20V10l2-2v12"/></svg>',
+    "sign_style": '<svg viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z"/><path d="M9.5 12.5l2 2 3.5-4"/></svg>',
+    "vegetation": '<svg viewBox="0 0 24 24"><path d="M12 21v-8M12 13c0-4-3-7-7-7 0 4 3 7 7 7zM12 11c0-4 3-7 7-7 0 4-3 7-7 7z"/></svg>',
+    "metadata": '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>',
+    "poi": '<svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="5"/><path d="M13 13l7 7" stroke-linecap="round"/></svg>',
+    "wiki": '<svg viewBox="0 0 24 24"><circle cx="12" cy="11" r="7.5"/><path d="M8 8.5c1 1.5 2.5 2 4 2s3-.5 4-2"/></svg>',
+    "wiki_landmark": '<svg viewBox="0 0 24 24"><circle cx="12" cy="11" r="7.5"/><path d="M8 8.5c1 1.5 2.5 2 4 2s3-.5 4-2"/></svg>',
+    "climate": '<svg viewBox="0 0 24 24"><path d="M12 3v18M5 7l14 10M19 7L5 17"/><circle cx="12" cy="12" r="3"/></svg>',
+    "hemisphere": '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/></svg>',
+    "shadow_consistency": '<svg viewBox="0 0 24 24"><circle cx="9" cy="6.5" r="2.4"/><path d="M9 9.5v7.5M4 20.5h13M14 8l4-4" stroke-linecap="round"/></svg>',
+    "geo_match": '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M15.5 15.5L20 20" stroke-linecap="round"/><path d="M8.5 11l1.8 1.8 3.2-3.8"/></svg>',
+    "geo_rollup": '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M15.5 15.5L20 20" stroke-linecap="round"/></svg>',
+    "timezone": '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2.2M12 3.5v-1"/></svg>',
+    "frames": '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="8" height="14" rx="1.5"/><rect x="13" y="5" width="8" height="14" rx="1.5"/></svg>',
+    "corpus": '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/></svg>',
 }
 # Provenance channel -> short badge label + tint (matches provenance.py).
 _CHANNELS = {
@@ -192,8 +210,8 @@ def _frame_viz(ev: "Evidence") -> str:
             ov = ""
     return (
         f'<svg class="frameviz" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" '
-        f'xmlns:xlink="http://www.w3.org/1999/xlink">'
-        f'<image href="data:image/jpeg;base64,{b64}" xlink:href="data:image/jpeg;base64,{b64}" '
+        f'>'
+        f'<image href="data:image/jpeg;base64,{b64}" '
         f'x="0" y="0" width="{w}" height="{h}"/>{ov}</svg>'
     )
 
@@ -264,6 +282,14 @@ def render_html(adj: Adjudication, out_path: str) -> str:
             return 0.0
 
     evidence = sorted(pack.evidence, key=lambda e: (order[_cv(e.verdict)], -_conf_of(e)))
+    try:
+        # Collapse the inconclusive geo-family tail into one digest row —
+        # supports/contradicts cards stay individually visible. Display
+        # only: the adjudicator already saw the full pack.
+        from . import dedupe_evidence
+        evidence = dedupe_evidence.compact_for_display(evidence)
+    except Exception:
+        pass
     cards = []
     sun_shown = False
     for i, ev in enumerate(evidence):

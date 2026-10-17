@@ -9,3 +9,4 @@ venv/
 .sundial_frames/
 .DS_Store
 .ipynb_checkpoints/
+.sundial_cache/

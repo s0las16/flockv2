@@ -294,8 +294,8 @@ def test_geoclip_runner_up_markers_without_duplicating_gps_fix():
     assert pred_markers[0]["lat"] == pytest.approx(51.5074, abs=1e-4)
     assert pred_markers[0]["lon"] == pytest.approx(-0.1278, abs=1e-4)
 
-    # Runner-up candidates (candidates[1:]) appear as "alt model guess" geo markers
-    alt_markers = [m for m in markers if "alt model guess" in m["label"]]
+    # Runner-up candidates (candidates[1:]) appear as "other possible spot" geo markers
+    alt_markers = [m for m in markers if "other possible spot" in m["label"]]
     assert len(alt_markers) == 2
     assert alt_markers[0]["lat"] == pytest.approx(53.4808, abs=1e-4)
     assert alt_markers[0]["lon"] == pytest.approx(-2.2426, abs=1e-4)

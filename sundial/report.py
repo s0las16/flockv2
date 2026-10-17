@@ -183,6 +183,13 @@ _CC_NAME = {
     "LT": "Lithuania", "MT": "Malta", "CY": "Cyprus",
 }
 
+#: Short chip text for the verdict when checking a claim.
+_VERDICT_CHIP = {
+    Verdict.SUPPORTED: "Matches your claim",
+    Verdict.CONTRADICTED: "Doesn’t match your claim",
+    Verdict.INSUFFICIENT: "Can’t confirm",
+}
+
 #: One-line plain-English read of the headline verdict.
 _VERDICT_SUB = {
     Verdict.SUPPORTED: "the claim checks out",
@@ -502,7 +509,8 @@ def _loc_rail(extra: "dict | None", mix_html: str) -> str:
     else:
         map_block = '<div class="mapnone">map unavailable</div>'
 
-    # 2. location readout — best guess big, then ranked confidence bars
+    # 2. location readout — a screen-reader text version of the map (the
+    #    visible place name lives in the side panel, not on top of the map)
     loc_block = ""
     if loc:
         best = loc.get("best_name") or loc.get("best") or loc.get("name")
@@ -525,24 +533,25 @@ def _loc_rail(extra: "dict | None", mix_html: str) -> str:
                     f'style="width:{w:.0f}%"></span></span>{num}</div>')
             bits.append('<div class="loclist">' + "".join(lis) + "</div>")
         if bits:
-            loc_block = '<div class="locread">' + "".join(bits) + "</div>"
+            loc_block = '<div class="locread sr">' + "".join(bits) + "</div>"
 
     # 3. reasoning chain fragment, if the caller produced one
     chain_block = ""
     if isinstance(chain, str) and chain.strip():
-        chain_block = ('<div class="chainbox"><div class="railsub">'
-                       'why we think so</div>' + chain + "</div>")
+        chain_block = ('<div class="sr"><div class="chainbox"><div class="railsub">'
+                       'why we think so</div>' + chain + "</div></div>")
 
     if has_geo:
         inner = map_block + loc_block + chain_block
     else:
         inner = ('<div class="nogeo"><span class="nogeoicon">' + _ICONS["geo"]
-                 + '</span>no location guess yet'
-                 '<span class="nogeosub">mention a place in your claim</span></div>')
+                 + '</span><span class="nogeohead">no location guess yet</span>'
+                 '<span class="nogeosub">Try a clearer outdoor photo, or say '
+                 'where you think it was taken.</span></div>')
 
-    foot = f'<div class="railfoot">{mix_html}</div>' if mix_html else ""
+    foot = f'<div class="railfoot sr">{mix_html}</div>' if mix_html else ""
     return ('<aside class="rail"><div class="railpanel">'
-            '<div class="railtitle">Where it was likely filmed</div>'
+            '<div class="railtitle sr">Where it was likely filmed</div>'
             + inner + foot + "</div></aside>")
 
 
@@ -626,44 +635,96 @@ def render_html(adj: Adjudication, out_path: str,
 
     rail_html = _loc_rail(extra, "")
 
-    # Simple detected-location hero for the main card
+    # --- the detected place, shown big in the side panel ---------------------
     ex_loc = (extra.get("loc_summary") if isinstance(extra, dict) else None) or {}
     if not isinstance(ex_loc, dict):
         ex_loc = {}
-    raw_hp = ex_loc.get("best_name") or claim.claimed_place or ""
+    # only evidence may name the place — never echo the user's claim back
+    raw_hp = ex_loc.get("best_name") or ""
     if isinstance(raw_hp, dict):
         raw_hp = raw_hp.get("name") or raw_hp.get("cc") or ""
     hero_place = str(raw_hp or "").strip()
-    pt_src = ex_loc.get("predicted") or ex_loc.get("anchor") or {}
+    pt_src = ex_loc.get("predicted") or {}
     if not isinstance(pt_src, dict):
         pt_src = {}
-    hlat, hlon = pt_src.get("lat"), pt_src.get("lon")
-    hr_km = pt_src.get("radius_km") or pt_src.get("r_km")
-    coord_sub = ""
+    coord_txt, copy_txt, radius_txt = "", "", ""
     gmap_q = hero_place
     try:
-        if hlat is not None and hlon is not None:
-            la_f, lo_f = float(hlat), float(hlon)
-            ns, ew = ("N" if la_f >= 0 else "S"), ("E" if lo_f >= 0 else "W")
-            coord_sub = f"{abs(la_f):.4f}° {ns}, {abs(lo_f):.4f}° {ew}"
-            if hr_km:
-                coord_sub += f" · ±{float(hr_km):.0f} km"
-            gmap_q = f"{la_f:.5f},{lo_f:.5f}"
+        la_f, lo_f = float(pt_src.get("lat")), float(pt_src.get("lon"))
+        ns, ew = ("N" if la_f >= 0 else "S"), ("E" if lo_f >= 0 else "W")
+        coord_txt = f"{abs(la_f):.4f}° {ns}, {abs(lo_f):.4f}° {ew}"
+        copy_txt = f"{la_f:.5f}, {lo_f:.5f}"
+        gmap_q = f"{la_f:.5f},{lo_f:.5f}"
+        r_km = pt_src.get("radius_km") or pt_src.get("r_km")
+        if r_km:
+            radius_txt = f"within about {float(r_km):.0f} km"
     except (TypeError, ValueError):
         pass
-    hero_title = hero_place or "Location unknown"
-    gmap_btn = (
-        f'<a class="gmapbtn" id="gmapBtn" data-q="{_e(gmap_q)}" '
-        f'target="_blank" rel="noopener">Open in Google Maps &#8599;</a>'
-        if gmap_q else ""
+
+    # location confidence: in guess mode the place score is what matters;
+    # when checking a claim it is the verdict confidence
+    shown_pct = conf_pct
+    if guess_mode:
+        try:
+            top = (_ranked_rows(ex_loc.get("ranked")) or [(None, None)])[0][1]
+            if top is not None:
+                shown_pct = max(0.0, min(1.0, float(top))) * 100
+        except (TypeError, ValueError, IndexError):
+            pass
+    if shown_pct >= 70:
+        conf_word = "High confidence"
+    elif shown_pct >= 45:
+        conf_word = "Medium confidence"
+    else:
+        conf_word = "Low confidence"
+
+    if hero_place:
+        place_html = f'<h2 class="placename">{_e(hero_place)}</h2>'
+        meta = " · ".join(x for x in (coord_txt, radius_txt) if x)
+        place_html += f'<div class="placemeta">{_e(meta)}</div>' if meta else ""
+    else:
+        place_html = ('<h2 class="placename dim">Location unknown</h2>'
+                      '<div class="placemeta plain">Nothing in the footage pinned '
+                      'down where it was taken.</div>')
+
+    actions = []
+    if gmap_q:
+        actions.append(
+            f'<a class="btn primary" id="gmapBtn" data-q="{_e(gmap_q)}" '
+            f'target="_blank" rel="noopener">{_ICONS["geo"]}Open in Google Maps</a>')
+    if copy_txt:
+        actions.append(
+            f'<button class="btn" type="button" id="copyBtn" '
+            f'data-c="{_e(copy_txt)}">Copy coordinates</button>')
+    actions_html = ('<div class="actions">' + "".join(actions) + "</div>"
+                    if actions else "")
+
+    conf_html = (
+        '<div class="conf">'
+        f'<div class="confhead"><span>{_e(conf_word)}</span>'
+        f'<span class="confnum" id="confNum" data-target="{shown_pct:.0f}">'
+        f'{shown_pct:.0f}%</span></div>'
+        f'<div class="cbar"><div class="cfill" id="cFill" data-w="{shown_pct:.0f}" '
+        f'style="width:{shown_pct:.0f}%"></div></div></div>'
     )
-    coord_div = f'<div class="loccoords">{_e(coord_sub)}</div>' if coord_sub else ""
-    loc_hero_html = (
-        '<div class="lochero">'
-        '<div class="locherolbl">Detected location</div>'
-        f'<div class="locheroname">{_e(hero_title)}</div>'
-        f'{coord_div}{gmap_btn}'
-        '</div>'
+
+    chip_word = ("Best guess" if guess_mode
+                 else _VERDICT_CHIP.get(verdict, verdict.value.title()))
+    sub_line = ("no claim to check — best guess is on the map" if guess_mode
+                else _VERDICT_SUB.get(verdict, ""))
+    claim_said = " · ".join(
+        str(x) for x in (claim.claimed_place, claim.claimed_time) if x)
+    if not claim_said and not guess_mode:
+        claim_said = str(claim.raw or "")
+    claim_box = (
+        '<div class="claimbox">'
+        + ('' if guess_mode else
+           f'<div class="kicker">You said</div>'
+           f'<div class="said">{_e(claim_said)}</div>')
+        + f'<div class="verdictline"><span class="badge" id="verdictTxt" '
+          f'data-final="{_e(verdict.value)}">{_e(chip_word)}</span>'
+          f'<span class="vsub">{_e(sub_line)}</span></div>'
+        + '</div>'
     )
 
     doc = f"""<!DOCTYPE html>
@@ -671,169 +732,122 @@ def render_html(adj: Adjudication, out_path: str,
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sundial — {_e(verdict.value)}</title>
 <style>
-:root {{ --accent:{accent}; }}
+:root {{ --accent:{accent}; --line:#1a1a1a; --mute:#8a8a8a; }}
 * {{ box-sizing:border-box; }}
-body {{ font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-       background:#050507; color:#e5e5e5; margin:0; min-height:100vh;
-       background-image:radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
-       background-size:26px 26px; animation:drift 60s linear infinite; }}
-@keyframes drift {{ to {{ background-position:520px 260px; }} }}
-.wrap {{ max-width:1220px; margin:0 auto; padding:46px 20px 60px; }}
-.brand {{ font-size:12px; letter-spacing:.35em; color:#666; text-transform:uppercase;
-         margin-bottom:24px; display:flex; align-items:center; gap:10px; }}
-.brand::before {{ content:""; width:26px; height:1px; background:#262626; }}
-.layout {{ display:grid; grid-template-columns:minmax(0,62fr) minmax(300px,38fr);
-          gap:22px; align-items:start; }}
-.card {{ position:relative; border-radius:18px; padding:34px 38px;
-        background:rgba(13,13,16,.82); border:1px solid #1c1c1c;
-        backdrop-filter:blur(6px);
-        box-shadow:0 24px 70px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.55) inset; }}
-.card::before {{ content:""; position:absolute; inset:-1px; border-radius:19px; padding:1px;
-  background:radial-gradient(420px circle at var(--mx,50%) var(--my,-20%),
-      {glow}.55), transparent 40%);
-  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }}
-.rail {{ position:sticky; top:24px; }}
-.railpanel {{ position:relative; border-radius:18px; padding:20px 20px 16px;
-             background:rgba(13,13,16,.82); border:1px solid #1c1c1c;
-             overflow:hidden; }}
-.railpanel::after {{ content:""; position:absolute; inset:0; pointer-events:none;
-  background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,.05), transparent 60%);
-  opacity:0; transition:opacity .25s; }}
-.railpanel:hover::after {{ opacity:1; }}
-.railtitle {{ font-size:11px; letter-spacing:.28em; color:#666;
-             text-transform:uppercase; margin-bottom:14px; display:flex;
-             align-items:center; gap:10px; }}
-.railtitle::after {{ content:""; flex:1; height:1px; background:#1c1c1c; }}
-.railsub {{ font-size:10px; letter-spacing:.2em; color:#555;
-           text-transform:uppercase; margin-bottom:8px; }}
-.mapbox {{ border:1px solid #1c1c1c; border-radius:12px; overflow:hidden;
-          background:#08080a; }}
-.mapimg, .mapbox img {{ display:block; width:100%; height:auto; }}
-.mapbox iframe {{ display:block; width:100%; border:0; }}
-.mapbox svg {{ display:block; width:100%; height:auto; border-radius:10px; }}
-.mapnone {{ display:flex; align-items:center; justify-content:center;
-           min-height:150px; color:#444; font-size:11px;
-           letter-spacing:.18em; text-transform:uppercase;
-           border:1px dashed #262626; border-radius:12px; }}
-.locread {{ margin-top:16px; }}
-.locbest {{ font-size:22px; font-weight:800; color:#e5e5e5;
-           letter-spacing:.03em; margin-bottom:10px; }}
-.loclist {{ display:flex; flex-direction:column; gap:8px; }}
-.locrow {{ display:flex; align-items:center; gap:10px; font-size:12px; }}
-.loccc {{ color:#e5e5e5; font-weight:700; min-width:3ch; }}
-.locbar {{ flex:1; display:block; height:4px; background:rgba(255,255,255,.08);
-          border-radius:2px; overflow:hidden; }}
-.locfill {{ display:block; height:100%; background:#38bdf8; border-radius:2px; }}
-.locscore {{ color:#999; min-width:4ch; text-align:right;
-            font-variant-numeric:tabular-nums; }}
-.chainbox {{ margin-top:16px; border-top:1px solid #1c1c1c; padding-top:14px;
-            font-size:12px; color:#999; }}
-.railfoot {{ margin-top:16px; border-top:1px solid #1c1c1c; padding-top:12px; }}
-.railfoot .signalmix {{ margin-top:0; }}
-.nogeo {{ display:flex; flex-direction:column; align-items:center; gap:8px;
-         padding:34px 12px; border:1px dashed #262626; border-radius:12px;
-         color:#666; font-size:12px; letter-spacing:.14em;
-         text-transform:uppercase; text-align:center; }}
-.nogeoicon {{ display:flex; }}
-.nogeoicon svg {{ width:26px; height:26px; fill:none; stroke:#444;
-                 stroke-width:1.6; }}
-.nogeosub {{ color:#444; font-size:10px; letter-spacing:.2em; }}
-.verdictrow {{ display:flex; align-items:center; gap:26px; flex-wrap:wrap; }}
-.badge {{ font-size:34px; font-weight:800; letter-spacing:.10em; color:var(--accent);
-         text-shadow:0 0 26px {glow}.55); min-width:9ch; }}
-.ring {{ width:86px; height:86px; transform:rotate(-90deg); }}
-.ring .bg {{ stroke:rgba(255,255,255,.10); }}
-.ring .fg {{ stroke:var(--accent); stroke-linecap:round;
-           stroke-dasharray:226.2; stroke-dashoffset:226.2;
-           transition:stroke-dashoffset 1.1s cubic-bezier(.2,.7,.2,1); }}
-.ringwrap {{ position:relative; width:86px; height:86px; }}
-.ringnum {{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-           font-size:17px; font-weight:700; color:#e5e5e5; transform:none; }}
-.confsub {{ font-size:11px; color:#666; letter-spacing:.14em; text-transform:uppercase; }}
-.vsub {{ color:#888; font-size:12px; margin-top:8px; letter-spacing:.04em; }}
-h1 {{ font-size:12px; text-transform:uppercase; letter-spacing:.22em; color:#666;
-     margin:32px 0 12px; border-bottom:1px solid #1c1c1c; padding-bottom:8px; }}
-.claim {{ font-size:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:baseline; }}
-.ck {{ color:#666; font-size:11px; text-transform:uppercase; letter-spacing:.15em; }}
+html, body {{ height:100%; }}
+body {{ margin:0; background:#000; color:#ededed;
+       font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, sans-serif;
+       -webkit-font-smoothing:antialiased; }}
+.wrap {{ height:100vh; display:flex; flex-direction:column; }}
+.top {{ height:56px; flex:none; display:flex; align-items:center; justify-content:space-between;
+       padding:0 20px; border-bottom:1px solid var(--line); }}
+.brand {{ font-size:15px; font-weight:600; letter-spacing:-.01em; color:#fff; }}
+.brand span {{ color:var(--mute); font-weight:400; }}
+.newbtn {{ color:#ededed; text-decoration:none; font-size:13px; padding:7px 14px;
+          border:1px solid #2a2a2a; border-radius:999px; }}
+.newbtn:hover {{ background:#111; }}
+.layout {{ flex:1; min-height:0; display:grid; grid-template-columns:400px minmax(0,1fr); }}
+.card {{ overflow-y:auto; padding:30px 26px 40px; border-right:1px solid var(--line);
+        background:#050505; opacity:0; transform:translateY(6px);
+        animation:in .45s cubic-bezier(.2,.7,.2,1) .05s forwards; }}
+@keyframes in {{ to {{ opacity:1; transform:none; }} }}
+.kicker {{ font-size:12px; color:var(--mute); margin-bottom:6px; }}
+.placename {{ font-size:30px; line-height:1.15; font-weight:650; letter-spacing:-.02em;
+             margin:0; color:#fff; }}
+.placename.dim {{ color:#777; }}
+.placemeta.plain {{ font-family:inherit; line-height:1.5; }}
+.placemeta {{ margin-top:8px; font-size:13px; color:var(--mute);
+             font-family:ui-monospace, "SF Mono", Menlo, monospace; }}
+.actions {{ display:flex; gap:8px; flex-wrap:wrap; margin-top:20px; }}
+.btn {{ display:inline-flex; align-items:center; gap:7px; font:inherit; font-size:13px;
+       font-weight:500; padding:9px 14px; border-radius:999px; cursor:pointer;
+       border:1px solid #2a2a2a; background:transparent; color:#ededed; text-decoration:none; }}
+.btn:hover {{ background:#111; }}
+.btn.primary {{ background:#fff; color:#000; border-color:#fff; }}
+.btn.primary:hover {{ background:#e6e6e6; }}
+.btn svg {{ width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; }}
+.conf {{ margin-top:28px; }}
+.confhead {{ display:flex; justify-content:space-between; font-size:13px; color:#cfcfcf; }}
+.confnum {{ font-variant-numeric:tabular-nums; color:#fff; font-weight:600; }}
+.cbar {{ margin-top:8px; height:6px; border-radius:3px; background:#161616; overflow:hidden; }}
+.cfill {{ height:100%; border-radius:3px; background:var(--accent);
+         transition:width 1s cubic-bezier(.2,.7,.2,1); }}
+.claimbox {{ margin-top:28px; padding-top:22px; border-top:1px solid var(--line); }}
+.said {{ font-size:16px; color:#fff; margin-bottom:12px; }}
+.verdictline {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }}
+.badge {{ display:inline-block; font-size:12px; font-weight:600; padding:5px 11px; border-radius:999px;
+         color:var(--accent); background:color-mix(in srgb, var(--accent) 14%, transparent);
+         border:1px solid color-mix(in srgb, var(--accent) 35%, transparent); }}
+.vsub {{ font-size:13px; color:var(--mute); }}
+.morebox {{ margin-top:30px; border-top:1px solid var(--line); padding-top:16px; }}
+.morebox > summary {{ cursor:pointer; list-style:none; font-size:13px; color:#bdbdbd; }}
+.morebox > summary::-webkit-details-marker {{ display:none; }}
+.morebox > summary::after {{ content:" +"; color:#666; }}
+.morebox[open] > summary::after {{ content:" –"; }}
+h1 {{ font-size:12px; font-weight:500; color:var(--mute); margin:22px 0 10px; }}
+.claim {{ font-size:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:baseline; }}
+.ck {{ color:#666; font-size:12px; }}
 .cdot {{ color:#333; }}
-.craw {{ color:#999; font-size:13px; margin-top:8px; font-style:italic; }}
-.clip {{ color:#555; font-size:11px; margin-top:10px; word-break:break-all; }}
-.evgrid {{ display:flex; flex-direction:column; gap:10px; }}
-.ev {{ background:rgba(255,255,255,.028); border:1px solid #1c1c1c;
-      border-radius:12px; padding:14px 16px; opacity:0; transform:translateY(10px);
-      animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards;
-      position:relative; overflow:hidden; }}
-.ev::after {{ content:""; position:absolute; inset:0; pointer-events:none;
-  background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,.05), transparent 60%);
-  opacity:0; transition:opacity .25s; }}
-.ev:hover::after {{ opacity:1; }}
-@keyframes rise {{ to {{ opacity:1; transform:none; }} }}
-.evhead {{ display:flex; align-items:center; gap:10px; }}
-.evicon svg {{ width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.6; }}
-.etype {{ font-weight:700; font-size:13px; color:#e5e5e5; }}
-.pill {{ margin-left:auto; border-radius:999px; padding:2px 10px; font-size:11px; font-weight:700; }}
-.econfnum {{ font-size:12px; color:#999; min-width:4ch; text-align:right; }}
-.confbar {{ height:4px; background:rgba(255,255,255,.08); border-radius:2px; margin:10px 0 9px; overflow:hidden; }}
-.conffill {{ height:100%; width:0; border-radius:2px; transition:width 1s cubic-bezier(.2,.7,.2,1); }}
-.evsum {{ font-size:13px; line-height:1.55; color:#d9d9d9; }}
+.craw {{ color:#999; font-size:13px; margin-top:6px; font-style:italic; width:100%; }}
+.evgrid {{ display:flex; flex-direction:column; gap:8px; }}
+.ev {{ border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:#0a0a0a; }}
+.evhead {{ display:flex; align-items:center; gap:9px; }}
+.evicon svg {{ width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.6; }}
+.etype {{ font-weight:600; font-size:13px; color:#e5e5e5; }}
+.pill {{ margin-left:auto; border-radius:999px; padding:2px 9px; font-size:11px; font-weight:600; }}
+.econfnum {{ font-size:12px; color:#888; min-width:4ch; text-align:right; }}
+.confbar {{ height:3px; background:#161616; border-radius:2px; margin:9px 0 8px; overflow:hidden; }}
+.conffill {{ height:100%; border-radius:2px; }}
+.evsum {{ font-size:13px; line-height:1.5; color:#cfcfcf; }}
 .frames {{ color:#555; font-size:11px; margin-top:6px; }}
-.chan {{ border:1px solid; border-radius:4px; padding:0 5px; font-size:9px;
-        font-weight:700; letter-spacing:.08em; opacity:.85; }}
-.signalmix {{ display:flex; gap:14px; flex-wrap:wrap; margin-top:14px;
-             font-size:11px; color:#666; }}
-.signalmix b {{ color:#999; margin-right:4px; }}
-.sunrow {{ display:flex; justify-content:center; padding:10px 16px 14px; }}
+.sunrow {{ display:flex; justify-content:center; }}
 .sunviz {{ width:100%; max-width:460px; }}
-.frameviz {{ width:100%; max-width:620px; border-radius:8px; margin-top:10px;
-            border:1px solid #1c1c1c; display:block; }}
+.frameviz {{ width:100%; border-radius:8px; margin-top:10px; display:block; }}
 .svlabel {{ font:11px ui-monospace,monospace; fill:#999; }}
-.narrative {{ font-size:14px; line-height:1.65; color:#e5e5e5;
-             background:rgba(255,255,255,.03); border-left:3px solid var(--accent);
-             padding:14px 18px; border-radius:0 10px 10px 0; }}
-details {{ margin-top:10px; }}
-summary {{ cursor:pointer; color:#666; font-size:12px; letter-spacing:.12em; text-transform:uppercase; }}
-.lochero {{ margin:4px 0 22px; padding:20px 22px; border-radius:14px;
-            background:rgba(255,255,255,.03); border:1px solid #1f1f24; }}
-.locherolbl {{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:#777; margin-bottom:6px; }}
-.locheroname {{ font-size:28px; font-weight:700; color:#f5f5f5; letter-spacing:-.01em; line-height:1.2; }}
-.loccoords {{ font-size:12px; color:#888; margin-top:6px; }}
-.gmapbtn {{ display:inline-block; margin-top:14px; padding:8px 14px; border-radius:8px;
-            background:#f5f5f5; color:#09090b; font-size:12px; font-weight:700;
-            text-decoration:none; letter-spacing:.03em; cursor:pointer; }}
-.gmapbtn:hover {{ background:#fff; }}
-.morebox {{ margin-top:18px; border-top:1px solid #1a1a1f; padding-top:14px; }}
-pre {{ font-size:11px; color:#999; background:rgba(0,0,0,.55); border:1px solid #1c1c1c;
-      border-radius:10px; padding:14px; overflow:auto; max-height:320px; }}
-.empty {{ color:#555; }}
-footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
-         text-transform:uppercase; margin-top:34px; }}
-@media (max-width:1099px) {{
+.narrative {{ font-size:14px; line-height:1.6; color:#dcdcdc; margin:0; }}
+details details {{ margin-top:14px; }}
+details details > summary {{ cursor:pointer; color:#666; font-size:12px; }}
+pre {{ font-size:11px; color:#999; background:#0a0a0a; border:1px solid var(--line);
+      border-radius:10px; padding:12px; overflow:auto; max-height:300px; }}
+.empty {{ color:#555; font-size:13px; }}
+.rail {{ position:relative; min-height:0; background:#0a0d12; }}
+.railpanel {{ position:absolute; inset:0; overflow:hidden; }}
+.mapbox {{ position:absolute; inset:0; background:#0a0d12; }}
+.mapbox > .smap, .mapbox > .vmap {{ width:100%!important; height:100%!important;
+  border:0!important; border-radius:0!important; }}
+.mapbox img.mapimg {{ width:100%; height:100%; object-fit:cover; display:block; }}
+.mapbox svg {{ display:block; width:100%; height:100%; }}
+.mapnone, .nogeo {{ position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:10px; color:#666; font-size:13px;
+  text-align:center; padding:24px; }}
+.nogeoicon svg {{ width:30px; height:30px; fill:none; stroke:#3a3a3a; stroke-width:1.6; }}
+.nogeohead {{ color:#bbb; font-size:15px; }}
+.nogeohead::first-letter {{ text-transform:uppercase; }}
+.nogeosub {{ color:#666; max-width:300px; line-height:1.5; }}
+.sr {{ position:absolute!important; width:1px; height:1px; padding:0; margin:-1px;
+      overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }}
+@media (max-width:900px) {{
+  .wrap {{ height:auto; min-height:100vh; }}
   .layout {{ grid-template-columns:minmax(0,1fr); }}
-  .rail {{ position:static; }}
-  .card {{ padding:26px 22px; }}
+  .rail {{ position:static; order:-1; }}
+  .railpanel {{ position:relative; height:58vh; }}
+  .card {{ border-right:0; overflow:visible; padding:24px 20px 36px; }}
 }}
 </style></head>
 <body>
 <div class="wrap">
-  <div class="brand">Sundial &mdash; where was this really filmed?</div>
+  <header class="top">
+    <div class="brand">Sundial <span>&middot; where was this filmed?</span></div>
+    <a class="newbtn" href="/">New check</a>
+  </header>
   <div class="layout">
     <div class="card" id="spot">
-      {loc_hero_html}
-      <div class="verdictrow">
-        <div>
-          <div class="badge" id="verdictTxt" data-final="{_e(verdict.value)}">{_e(verdict.value)}</div>
-          <div class="vsub">{_e("no claim to check — best guess is on the map" if guess_mode else _VERDICT_SUB.get(verdict, ""))}</div>
-        </div>
-        <div class="ringwrap">
-          <svg class="ring" viewBox="0 0 86 86"><circle class="bg" cx="43" cy="43" r="36" fill="none" stroke-width="6"/>
-          <circle class="fg" id="ringFg" cx="43" cy="43" r="36" fill="none" stroke-width="6"
-                  style="stroke-dashoffset:{226.2 * (1 - conf_pct / 100):.1f}"/></svg>
-          <div class="ringnum" id="confNum" data-target="{conf_pct:.0f}">{conf_pct:.0f}%</div>
-        </div>
-        <div class="confsub">how sure<br>we are</div>
-      </div>
-      <details class="morebox"><summary>Show breakdown</summary>
+      <div class="kicker">{"Most likely filmed in" if hero_place else "Detected location"}</div>
+      {place_html}
+      {actions_html}
+      {conf_html}
+      {claim_box}
+      <details class="morebox"><summary>How we worked it out</summary>
         <h1>{claim_head}</h1>
         <div class="claim">{claim_html}</div>
         <h1>What we checked</h1>
@@ -845,78 +859,38 @@ footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
     </div>
     {rail_html}
   </div>
-  <footer>Sundial &middot; VAST Builders Challenge</footer>
 </div>
 <script>
-// verdict scramble-in
 (function() {{
   var gb = document.getElementById("gmapBtn");
   if (gb && gb.dataset.q) {{
     gb.href = "https://" + "www.google.com/maps/search/?api=1&query=" + encodeURIComponent(gb.dataset.q);
   }}
-  var el = document.getElementById("verdictTxt"), final = el.dataset.final,
-      chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  el.textContent = final;
-  var frame = 0, total = 18;
-  function tick() {{
-    frame++;
-    var out = "";
-    for (var i = 0; i < final.length; i++) {{
-      out += (frame / total > i / final.length)
-        ? final[i]
-        : chars[Math.floor(Math.random() * chars.length)];
-    }}
-    el.textContent = out;
-    if (frame < total) requestAnimationFrame(tick);
+  var cb = document.getElementById("copyBtn");
+  if (cb) {{
+    cb.addEventListener("click", function() {{
+      var t = cb.dataset.c, done = function() {{
+        cb.textContent = "Copied";
+        setTimeout(function() {{ cb.textContent = "Copy coordinates"; }}, 1400);
+      }};
+      if (navigator.clipboard) navigator.clipboard.writeText(t).then(done, done);
+      else done();
+    }});
   }}
-  requestAnimationFrame(tick);
-}})();
-// confidence count-up + ring
-(function() {{
-  var num = document.getElementById("confNum"), target = +num.dataset.target,
-      ring = document.getElementById("ringFg"), t0 = null;
-  requestAnimationFrame(function() {{
-    ring.style.strokeDashoffset = (226.2 * (1 - target / 100)).toFixed(1);
-  }});
+  // confidence count-up + bar fill (pre-rendered at final values without JS)
+  var num = document.getElementById("confNum"), fill = document.getElementById("cFill");
+  if (!num) return;
+  var target = +num.dataset.target, t0 = null;
+  if (fill) fill.style.width = "0%";
+  requestAnimationFrame(function() {{ if (fill) fill.style.width = target + "%"; }});
   function step(ts) {{
     if (!t0) t0 = ts;
-    var p = Math.min(1, (ts - t0) / 1000);
+    var p = Math.min(1, (ts - t0) / 900);
     num.textContent = Math.round(target * p) + "%";
     if (p < 1) requestAnimationFrame(step);
   }}
   requestAnimationFrame(step);
 }})();
-// confidence bars fill once visible (bars are pre-rendered at their final
-// width so the page still reads correctly with JS disabled)
-try {{
-  if (typeof IntersectionObserver !== "undefined") {{
-    var io = new IntersectionObserver(function(entries) {{
-      entries.forEach(function(en) {{
-        if (en.isIntersecting) {{
-          var bar = en.target.querySelector(".conffill");
-          if (bar) bar.style.width = bar.dataset.w + "%";
-          io.unobserve(en.target);
-        }}
-      }});
-    }}, {{threshold: .25}});
-    document.querySelectorAll(".ev").forEach(function(el) {{
-      var bar = el.querySelector(".conffill");
-      if (bar) bar.style.width = "0%";
-      io.observe(el);
-    }});
-  }}
-}} catch (e) {{ /* animation is cosmetic — the report must still read */ }}
-// spotlight tracks the cursor
-document.addEventListener("mousemove", function(e) {{
-  var card = document.getElementById("spot"), r = card.getBoundingClientRect();
-  card.style.setProperty("--mx", ((e.clientX - r.left) / r.width * 100) + "%");
-  card.style.setProperty("--my", ((e.clientY - r.top) / r.height * 100) + "%");
-  document.querySelectorAll(".ev, .railpanel").forEach(function(el) {{
-    var er = el.getBoundingClientRect();
-    el.style.setProperty("--mx", (e.clientX - er.left) + "px");
-    el.style.setProperty("--my", (e.clientY - er.top) + "px");
-  }});
-}});
 </script>
 </body></html>"""
 

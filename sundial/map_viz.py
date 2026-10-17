@@ -42,15 +42,24 @@ _CSS = """\
 .smap-t.smap-inv{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.08) saturate(.65)}
 .smap-i{position:absolute;width:256px;height:256px;pointer-events:none}
 .smap-o{position:absolute;inset:0;overflow:hidden;pointer-events:none}
-.smap-ring{position:absolute;border:1.8px dashed rgba(250,204,21,.75);background:rgba(250,204,21,.08);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none}
+.smap-ring{position:absolute;border:1.5px solid rgba(66,133,244,.7);background:rgba(66,133,244,.13);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none}
 .smap-m{position:absolute;width:0;height:0;pointer-events:auto}
 .smap-m u{position:absolute;transform:translate(-50%,-50%);text-decoration:none;box-sizing:border-box}
-.smap-claim u{width:13px;height:13px;border:2.5px solid #fff;border-radius:50%;box-shadow:0 0 0 1.5px rgba(2,6,23,.8)}
-.smap-pred u{width:13px;height:13px;border:2.5px solid #facc15;border-radius:50%;box-shadow:0 0 0 1.5px rgba(2,6,23,.8)}
-.smap-geo u{width:9px;height:9px;background:#38bdf8;border-radius:50%;box-shadow:0 0 0 1.5px rgba(2,6,23,.8)}
+.smap-claim u{width:14px;height:14px;border:3px solid #fff;background:rgba(0,0,0,.35);border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.6)}
+.smap-pred{z-index:3}
+.smap-pred u{width:28px;height:28px;background:#ea4335;border-radius:50% 50% 50% 0;transform:translate(-50%,-122%) rotate(-45deg);box-shadow:-2px 3px 7px rgba(0,0,0,.55)}
+.smap-pred u::after{content:"";position:absolute;left:9px;top:9px;width:10px;height:10px;border-radius:50%;background:#7a1d16}
+.smap-geo u{width:10px;height:10px;background:#ea4335;opacity:.55;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 .smap-wiki u{width:7px;height:7px;background:#94a3b8;border-radius:50%;box-shadow:0 0 0 1.5px rgba(2,6,23,.8)}
-.smap-m b{position:absolute;left:9px;top:-8px;font:10px/1.5 ui-monospace,monospace;font-weight:400;color:#e2e8f0;background:rgba(2,6,23,.82);padding:0 5px;border-radius:3px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.smap-m b{position:absolute;left:12px;top:-10px;font:12px/1.6 -apple-system,BlinkMacSystemFont,Inter,"Segoe UI",sans-serif;font-weight:500;color:#fff;background:rgba(10,10,10,.85);padding:1px 8px;border-radius:6px;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.smap-pred b{left:18px;top:-44px}
+.smap-geo b,.smap-wiki b{display:none}
+.smap-geo:hover b,.smap-wiki:hover b{display:block}
 .smap-m b:empty{display:none}
+.smap-zm{position:absolute;right:12px;bottom:28px;z-index:5;display:flex;flex-direction:column;background:rgba(10,10,10,.88);border:1px solid rgba(255,255,255,.12);border-radius:10px;overflow:hidden}
+.smap-zm button{width:34px;height:34px;background:transparent;border:0;color:#eee;font:18px/1 -apple-system,sans-serif;cursor:pointer}
+.smap-zm button+button{border-top:1px solid rgba(255,255,255,.1)}
+.smap-zm button:hover{background:rgba(255,255,255,.08)}
 .smap-b{position:absolute;border:1px solid;box-sizing:border-box;pointer-events:none}
 .smap-b i{position:absolute;inset:0;opacity:.16}
 .smap-c{display:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#64748b;font-size:11px;letter-spacing:.04em;white-space:nowrap}
@@ -61,8 +70,8 @@ _CSS = """\
 .smap-vec .vmap{border:none!important;border-radius:0!important}
 .smap-gm{display:none;position:absolute;inset:0;z-index:3;background:#0a0d12}
 .smap-gm iframe{width:100%;height:100%;border:0;filter:invert(.92) hue-rotate(180deg) brightness(.95) contrast(1.05)}
-.smap-sw{position:absolute;top:8px;right:8px;z-index:5;display:flex;gap:3px;background:rgba(5,7,12,.82);border:1px solid rgba(148,163,184,.18);border-radius:7px;padding:2px;backdrop-filter:blur(4px)}
-.smap-sw button{background:transparent;border:none;color:#94a3b8;font:10px/1.3 ui-monospace,monospace;padding:3px 6px;border-radius:5px;cursor:pointer}
+.smap-sw{position:absolute;top:12px;right:12px;z-index:5;display:flex;gap:2px;background:rgba(10,10,10,.88);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:3px;backdrop-filter:blur(6px)}
+.smap-sw button{background:transparent;border:none;color:#aaa;font:12px/1.3 -apple-system,BlinkMacSystemFont,Inter,"Segoe UI",sans-serif;font-weight:500;padding:6px 12px;border-radius:999px;cursor:pointer}
 .smap-sw button:hover{color:#e2e8f0}
 .smap-sw button.on{background:rgba(255,255,255,.12);color:#fff}
 .smap-attr{position:absolute;right:6px;bottom:4px;color:rgba(148,163,184,.5);font-size:9px;pointer-events:none;z-index:4}
@@ -80,6 +89,7 @@ _JS = """\
       attr = root.querySelector(".smap-attr"),
       vecBox = root.querySelector(".smap-vec"),
       gmBox = root.querySelector(".smap-gm"),
+      zm = root.querySelector(".smap-zm"),
       sw = root.querySelector(".smap-sw"),
       fb = root.querySelector(".smap-fb");
   if (fb) fb.parentNode.removeChild(fb);
@@ -261,6 +271,7 @@ _JS = """\
         gmBox.style.display = "none";
       }
     }
+    if (zm) zm.style.display = (k === "gmaps") ? "none" : "flex";
     if (sw) {
       var btns = sw.querySelectorAll("button");
       for (var bi = 0; bi < btns.length; bi++)
@@ -274,6 +285,15 @@ _JS = """\
       if (b && b.getAttribute && b.getAttribute("data-p")) {
         e.stopPropagation();
         setProv(b.getAttribute("data-p"));
+      }
+    });
+  }
+  if (zm) {
+    zm.addEventListener("click", function (e) {
+      var b = e.target.closest ? e.target.closest("button[data-z]") : e.target;
+      if (b && b.getAttribute && b.getAttribute("data-z")) {
+        e.stopPropagation();
+        zoomAt(vw / 2, vh / 2, +b.getAttribute("data-z"));
       }
     });
   }
@@ -426,6 +446,12 @@ def _markers(markers: Any) -> list[dict]:
             )
         except (AttributeError, TypeError, ValueError):
             continue
+    # a claim ring sitting under the main pin doesn't need its own label
+    preds = [(m["a"], m["o"]) for m in out if m["k"] == "pred"]
+    for m in out:
+        if m["k"] == "claim" and any(
+                abs(m["a"] - a) < 1e-3 and abs(m["o"] - o) < 1e-3 for a, o in preds):
+            m["l"] = ""
     return out
 
 
@@ -498,17 +524,18 @@ def map_fragment(
         )
         w, h = _dim(width, "100%"), _dim(height, "360px")
         has_vec = isinstance(svg_fallback, str) and "<svg" in svg_fallback
-        vec_btn = ('<button type="button" data-p="vec">Vector</button>'
-                   if has_vec else "")
+        # vector map stays as the silent offline fallback, not a button
         vec_div = ('<div class="smap-vec">' + svg_fallback + "</div>"
                    if has_vec else '<div class="smap-vec"></div>')
         sw_html = (
             '<div class="smap-sw">'
-            '<button type="button" data-p="gmaps">Google</button>'
-            '<button type="button" data-p="streets" class="on">Streets</button>'
+            '<button type="button" data-p="streets" class="on">Map</button>'
             '<button type="button" data-p="sat">Satellite</button>'
-            '<button type="button" data-p="esri">Dark</button>'
-            + vec_btn +
+            '<button type="button" data-p="gmaps">Google</button>'
+            "</div>"
+            '<div class="smap-zm">'
+            '<button type="button" data-z="1" aria-label="zoom in">+</button>'
+            '<button type="button" data-z="-1" aria-label="zoom out">&minus;</button>'
             "</div>"
         )
         return (
@@ -521,7 +548,6 @@ def map_fragment(
             '<div class="smap-c"></div>'
             '<div class="smap-fb">' + _e(coords) + "</div>"
             '<div class="smap-attr">' + _e(_ATTR) + "</div>"
-            '<div class="smap-hint">drag &middot; scroll to zoom</div>'
             "</div>"
             '<div class="smap-gm"></div>'
             + vec_div + sw_html +

@@ -474,12 +474,13 @@ def _report_extra(adj) -> dict:
                 summ.get(k) for k in ("anchor", "predicted", "markers",
                                       "ranked", "best_cc", "best_name")):
             extra["loc_summary"] = summ
-            center = summ.get("anchor") or summ.get("predicted")
+            # centre on where we think it was filmed, falling back to the claim
+            center = summ.get("predicted") or summ.get("anchor")
             placeable = bool(center or summ.get("markers"))
             radius = (summ.get("predicted") or {}).get("radius_km") or (
                 summ.get("predicted") or {}).get("r_km")
-            zoom = 12 if summ.get("anchor") else max(
-                2, min(10, round(8 - math.log2(max(radius or 300, 50) / 300))))
+            zoom = 12 if not radius else max(
+                2, min(12, round(8 - math.log2(max(radius, 30) / 300))))
             # Generate the offline vector SVG first so it can serve both as an
             # in-map "Vector" tab / offline fallback inside map_viz AND as a
             # standalone fallback if map_viz fails.
@@ -488,24 +489,15 @@ def _report_extra(adj) -> dict:
                 try:
                     from . import vec_map
 
-                    for name, arg in (("vec_fragment", summ),
-                                      ("fragment_for", adj)):
-                        func = getattr(vec_map, name, None)
-                        if callable(func):
-                            try:
-                                svg_frag = func(arg) or ""
-                            except Exception:
-                                svg_frag = ""
-                        if svg_frag:
-                            break
+                    svg_frag = vec_map.vec_fragment(summ, height="100%") or ""
                 except Exception:
                     svg_frag = ""
-                try:  # interactive multi-provider slippy map primary
+                try:  # interactive slippy map fills the whole right side
                     from . import map_viz
 
                     frag = map_viz.map_fragment(
                         center, markers=summ.get("markers") or [],
-                        bands=summ.get("bands") or [], zoom=zoom,
+                        bands=[], zoom=zoom, height="100%",
                         radius_km=radius, ring_center=summ.get("predicted"),
                         svg_fallback=svg_frag)
                     if frag:

@@ -580,7 +580,7 @@ def _geo_markers(evs) -> list:
                     pct = f" ({float(c.get('prob') or 0) * 100:.0f}%)"
                 except (TypeError, ValueError):
                     pct = ""
-                add(pt[0], pt[1], f"alt model guess{pct}", "geo")
+                add(pt[0], pt[1], f"other possible spot{pct}", "geo")
             continue
         wiki_kind = "wiki" if "wiki" in tl else "geo"
         for key in ("places", "matches", "hits", "pois", "results"):
@@ -803,14 +803,20 @@ def summarize(evidence_list: list, anchor: tuple | None,
         pred = _predict(rows)
         named = _best_named_place(evs)
         gclip = _model_pred(evs)
+        # a ranking where no clue actually fired is just the claim echoed
+        # back (or a flat prior) — it must never pin the map on its own
+        has_cues = any(int(r.get("hits_n") or 0) > 0 for r in rows)
         corroborated = False
-        if summary["anchor"] and rows:  # cues corroborate the claimed
-            # country -> pin the claimed place itself, not the country's
-            # geographic middle ("Buckingham Palace is in London", not
-            # "somewhere around the middle of the UK")
+        if summary["anchor"] and rows and int(rows[0].get("hits_n") or 0) > 0:
+            # cues corroborate the claimed country -> pin the claimed place
+            # itself, not the country's geographic middle ("Buckingham
+            # Palace is in London", not "somewhere in the middle of the UK")
             anch_cc = _cc_of_point(
                 summary["anchor"]["lat"], summary["anchor"]["lon"])
             corroborated = bool(anch_cc and anch_cc == rows[0]["cc"])
+        if not (named or corroborated or gclip or has_cues):
+            pred = None
+            summary["best_cc"] = summary["best_name"] = None
         if named:  # an identified landmark is a far better pin than a
             # country-centroid blend — 25 km ring says "in/around here"
             pred = {"lat": named["lat"], "lon": named["lon"],
@@ -839,8 +845,8 @@ def summarize(evidence_list: list, anchor: tuple | None,
                 summary["best_name"] = gclip.get("label") or "model estimate"
         if pred:
             summary["predicted"] = pred
-            label = (f"predicted: {summary['best_name']}"
-                     if summary.get("best_name") else "predicted location")
+            label = (str(summary["best_name"])
+                     if summary.get("best_name") else "likely location")
             m = _marker(pred["lat"], pred["lon"], label, "pred")
             if m:
                 summary["markers"].append(m)

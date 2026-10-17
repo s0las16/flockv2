@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 import os
+import threading
 from typing import Any
 
 __all__ = ["available", "predict_coords", "geoclip_evidence", "pred_summary"]
@@ -48,17 +49,25 @@ def _schema():
     return ClaimVerdict, Evidence
 
 
+_MODEL_LOCK = threading.Lock()
+
+
 def _model():
-    """Lazy GeoCLIP instance; None when torch/geoclip isn't installed."""
+    """Lazy GeoCLIP instance; None when torch/geoclip isn't installed.
+
+    Locked so concurrent jobs wait for the first load instead of seeing the
+    'already tried' latch while the model is still None."""
     global _MODEL, _MODEL_TRIED
     if _MODEL_TRIED:
         return _MODEL
-    _MODEL_TRIED = True
-    try:
-        from geoclip import GeoCLIP  # noqa: pulls torch + downloads weights
-        _MODEL = GeoCLIP()
-    except Exception:
-        _MODEL = None
+    with _MODEL_LOCK:
+        if not _MODEL_TRIED:
+            try:
+                from geoclip import GeoCLIP  # noqa: pulls torch + weights
+                _MODEL = GeoCLIP()
+            except Exception:
+                _MODEL = None
+            _MODEL_TRIED = True
     return _MODEL
 
 
@@ -319,6 +328,19 @@ def geoclip_evidence(rows: list[dict], anchor=None,
                 type="geo_clip",
                 summary=base + f" — {dist:.0f} km from the claimed place",
                 verdict=ClaimVerdict.CONTRADICTS, confidence=0.55, data=data)
+        # mid-range distance: a decisive country mismatch still counts — most
+        # of the model's guesses in one country, almost none in the claimed one
+        ccl = str(claimed_cc or "").strip().upper()
+        ccl = "GB" if ccl == "UK" else ccl
+        share = {k: v / tot_mass for k, v in cc_mass.items()}
+        top_cc = max(share, key=share.get) if share else None
+        if (ccl and top_cc and top_cc != ccl and dist >= 400.0
+                and share[top_cc] >= 0.6 and share.get(ccl, 0.0) < 0.1):
+            return Evidence(
+                type="geo_clip",
+                summary=base + f" — {dist:.0f} km from the claimed place, "
+                               f"and in a different country",
+                verdict=ClaimVerdict.CONTRADICTS, confidence=0.5, data=data)
         return Evidence(
             type="geo_clip",
             summary=base + f" — {dist:.0f} km from the claimed place",

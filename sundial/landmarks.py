@@ -69,6 +69,37 @@ def consensus_landmarks(per_frame_landmarks: list[list[str]]) -> list[str]:
     return [first_casing[k] for k in order if len(frames_of[k]) >= 2]
 
 
+def recognized_landmarks(osint_blobs: list[dict]) -> list[str]:
+    """Visually-recognised landmark names out of per-frame OSINT blobs.
+
+    `recognized_landmark` is the visual-identification field (vs
+    `landmark_candidates`, which is text the model *read*). Voting:
+    how_sure "certain"/"likely" is worth two votes — a single confident
+    sighting survives; "maybe" is one vote and needs a second frame to
+    agree. First-sighting order, casing preserved.
+    """
+    votes: dict[str, int] = {}
+    first_casing: dict[str, str] = {}
+    order: list[str] = []
+    for blob in osint_blobs or []:
+        rec = blob.get("recognized_landmark") if isinstance(blob, dict) else None
+        if isinstance(rec, str):  # tolerate a bare string
+            rec = {"name": rec, "how_sure": "likely"}
+        if not isinstance(rec, dict):
+            continue
+        name = str(rec.get("name") or "").strip()
+        if not name:
+            continue
+        sure = str(rec.get("how_sure") or "").strip().lower()
+        key = name.lower()
+        if key not in votes:
+            votes[key] = 0
+            first_casing[key] = name
+            order.append(key)
+        votes[key] += 2 if sure in ("certain", "likely") else 1
+    return [first_casing[k] for k in order if votes[k] >= 2]
+
+
 def landmark_candidates_to_places(names: list[str], limit: int = 5) -> list[dict]:
     """Geocode consensus landmark names -> flat place dicts.
 

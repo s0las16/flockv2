@@ -17,7 +17,7 @@ human investigator would catalogue before forming a hypothesis.
 
 Return STRICT JSON with this exact schema — no prose, no markdown fences:
 
-{"architecture": "<building style/materials, e.g. 'red brick victorian terraces', or null without quotes>", "vegetation": ["<trees/plants/crops visible>"], "terrain": "<flat|hilly|mountainous|coastal|desert|urban|unknown>", "road_furniture": ["<bollards, guardrails, overhead gantries, tram lines, median style>"], "utility_poles": "<wood|concrete|metal|none|unknown>", "lane_markings_color": "<white|yellow|mixed|none|unknown>", "climate_cues": ["<snow, palm trees, deciduous bare, tropical undergrowth etc>"], "landmark_candidates": ["<proper names literally READ as written text in the frame>"], "sign_style": {"shape": "<rectangular|triangular|circular|backed|gantry|unknown>", "colors": "<one string e.g. 'white on blue'>", "convention_guess": "<vienna-style|mutcd-style|uk-style|unknown>"}, "vehicles": [{"class": "<type>", "style_note": "<e.g. 'european hatchback', 'yellow school bus'>"}]}
+{"architecture": "<building style/materials, e.g. 'red brick victorian terraces', or null without quotes>", "vegetation": ["<trees/plants/crops visible>"], "terrain": "<flat|hilly|mountainous|coastal|desert|urban|unknown>", "road_furniture": ["<bollards, guardrails, overhead gantries, tram lines, median style>"], "utility_poles": "<wood|concrete|metal|none|unknown>", "lane_markings_color": "<white|yellow|mixed|none|unknown>", "climate_cues": ["<snow, palm trees, deciduous bare, tropical undergrowth etc>"], "landmark_candidates": ["<proper names literally READ as written text in the frame>"], "recognized_landmark": {"name": "<world-famous place you recognise on sight, e.g. 'buckingham palace', 'golden gate bridge'>", "how_sure": "<certain|likely|maybe>"}, "sign_style": {"shape": "<rectangular|triangular|circular|backed|gantry|unknown>", "colors": "<one string e.g. 'white on blue'>", "convention_guess": "<vienna-style|mutcd-style|uk-style|unknown>"}, "vehicles": [{"class": "<type>", "style_note": "<e.g. 'european hatchback', 'yellow school bus'>"}]}
 
 - "architecture": dominant building style and materials (e.g. "red brick
   victorian terraces", "concrete panel apartment blocks", "adobe single
@@ -39,6 +39,13 @@ Return STRICT JSON with this exact schema — no prose, no markdown fences:
   you merely recognise visually — a tower resembling the Eiffel Tower is
   NOT a landmark unless its name is readable. NEVER invent plausible-
   sounding landmarks; [] if none.
+- "recognized_landmark": a DIFFERENT thing — a world-famous place you can
+  identify on sight without reading anything (Buckingham Palace, the
+  Sydney Opera House, a specific named bridge/cathedral/square). Report
+  only globally-recognisable places a stranger could name; "how_sure" is
+  "certain" only for unmistakable icons, "likely" for a strong match,
+  "maybe" for a plausible look. Use null when nothing recognisable is
+  shown — never name a generic palace, bridge, or tower just to fill it.
 - "sign_style": describe signage physically present. If no signs are
   visible return {"shape":"unknown","colors":"unknown",
   "convention_guess":"unknown"} — never a bare string or null.

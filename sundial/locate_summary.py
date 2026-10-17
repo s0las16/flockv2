@@ -311,6 +311,23 @@ def _cc_point(cc):
     return _latlon(row.get("lat"), row.get("lon"))
 
 
+def _cc_of_point(lat, lon) -> "str | None":
+    """alpha-2 of the country containing (lat, lon) via offline NE borders
+    — lazy pip2cc; None over ocean/bad input/missing data."""
+    try:
+        from . import pip2cc
+    except Exception:
+        try:
+            import pip2cc  # direct-script context
+        except Exception:
+            return None
+    try:
+        hit = pip2cc.country_at(lat, lon)
+        return _norm_cc(hit.get("cc")) if isinstance(hit, dict) else None
+    except Exception:
+        return None
+
+
 def _ev_parts(ev) -> tuple[str, dict]:
     """Evidence object OR plain dict -> (type_str, data_dict)."""
     if isinstance(ev, dict):
@@ -476,6 +493,45 @@ def _stable_ccs(evs) -> list:
             if cc and cc not in out:
                 out.append(cc)
     return out
+
+
+def _best_named_place(evs) -> "dict | None":
+    """The strongest *named* coordinate place across the pack.
+
+    A consensus landmark the VLM identified (Buckingham Palace) geocodes
+    to a precise point — a far better estimate than a country-centroid
+    blend. Landmark/wiki cards win; generic geo fixes are ignored (they
+    already have their own marker). Returns {lat, lon, name, cc} or None.
+    """
+    best = None
+    for t, d in evs:
+        tl = t.lower()
+        if "landmark" not in tl and "wiki" not in tl:
+            continue
+        for key in ("places", "matches", "hits"):
+            for item in d.get(key) or []:
+                if not isinstance(item, dict):
+                    continue
+                pt = _latlon(item.get("lat"), item.get("lon"))
+                if not pt:
+                    continue
+                name = (item.get("name") or item.get("title")
+                        or item.get("label") or "").strip()
+                if not name:
+                    continue
+                try:
+                    score = float(item.get("score") or 0)
+                except (TypeError, ValueError):
+                    score = 0.0
+                row = {"lat": pt[0], "lon": pt[1], "name": name,
+                       "cc": str(item.get("cc") or item.get("country_code")
+                                 or "").upper() or None,
+                       "score": score}
+                # landmark cards outrank wiki; then geocode score order
+                rank = (1 if "landmark" in tl else 0, score)
+                if best is None or rank > best[0]:
+                    best = (rank, row)
+    return best[1] if best else None
 
 
 def _geo_markers(evs) -> list:
@@ -689,6 +745,25 @@ def summarize(evidence_list: list, anchor: tuple | None,
 
     try:
         pred = _predict(rows)
+        named = _best_named_place(evs)
+        if named:  # an identified landmark is a far better pin than a
+            # country-centroid blend — 25 km ring says "in/around here"
+            pred = {"lat": named["lat"], "lon": named["lon"], "r_km": 25.0}
+            summary["best_name"] = (
+                f"{named['name']}, {_cc_name(named['cc']) or named['cc']}"
+                if named.get("cc") else named["name"])
+            if named.get("cc"):
+                summary["best_cc"] = named["cc"]
+        elif summary["anchor"] and rows:  # cues corroborate the claimed
+            # country -> pin the claimed place itself, not the country's
+            # geographic middle ("Buckingham Palace is in London", not
+            # "somewhere around the middle of the UK")
+            anch_cc = _cc_of_point(
+                summary["anchor"]["lat"], summary["anchor"]["lon"])
+            if anch_cc and anch_cc == rows[0]["cc"]:
+                pred = {"lat": summary["anchor"]["lat"],
+                        "lon": summary["anchor"]["lon"], "r_km": 60.0}
+                summary["best_name"] = claim_label
         if pred:
             summary["predicted"] = pred
             label = (f"predicted: {summary['best_name']}"

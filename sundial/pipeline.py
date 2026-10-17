@@ -772,9 +772,13 @@ def run(
         pass
     try:
         from . import landmarks
-        lnames = landmarks.consensus_landmarks(
+        read_names = landmarks.consensus_landmarks(
             [b.get("landmark_candidates") for b in osint_blobs
              if isinstance(b, dict)])
+        seen_names = landmarks.recognized_landmarks(osint_blobs)
+        lnames = seen_names + [
+            n for n in read_names if n.lower() not in
+            {s.lower() for s in seen_names}]
         if lnames:
             places = landmarks.landmark_candidates_to_places(lnames)
             pack.add(landmarks.landmark_evidence(lnames, places, anchor, claimed_cc))
@@ -834,6 +838,14 @@ def run(
             if titles:
                 m = wiki_places.match_named(titles, names_for_lookup)
                 pack.add(wiki_places.wiki_evidence(m, True, 10000))
+        except Exception:
+            pass
+        try:
+            from . import osm_context
+            ctx = osm_context.context_at(lat, lon)
+            ev = osm_context.context_evidence(ctx, claim_place or "")
+            if ev is not None:
+                pack.add(ev)
         except Exception:
             pass
         try:

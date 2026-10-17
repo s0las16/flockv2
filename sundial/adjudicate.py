@@ -211,11 +211,23 @@ def _fallback(pack: EvidencePack, note: Optional[str] = None) -> Adjudication:
         verdict = Verdict.INSUFFICIENT
         conf = min(0.5, 0.2 + 0.05 * len(ev))
 
-    kinds = ", ".join(sorted({e.type for e in ev})) or "none"
+    kinds = ", ".join(sorted({
+        str(getattr(e, "type", "") or "").replace("+", " and ")
+        .replace("_", " ").strip()
+        for e in ev if getattr(e, "type", None)})) or "no signals"
+    phrase = {
+        Verdict.SUPPORTED: "the claim checks out",
+        Verdict.CONTRADICTED: "the claim doesn’t add up",
+        Verdict.INSUFFICIENT: "not enough evidence to decide",
+    }[verdict]
+    rest = len(ev) - len(supp) - len(contra)
     narrative = (
-        f"{len(supp)} evidence item(s) support, {len(contra)} contradict, "
-        f"{len(ev) - len(supp) - len(contra)} inconclusive across types: {kinds}. "
-        f"Rule-based verdict: {verdict.value}."
+        f"Checked {len(ev)} signal{'s' if len(ev) != 1 else ''}: "
+        f"{len(supp)} point{'s' if len(supp) != 1 else ''} to the claim "
+        f"being true, {len(contra)} point{'s' if len(contra) != 1 else ''} "
+        f"against it"
+        + (f", and {rest} gave no clear answer" if rest else "")
+        + f" ({kinds}). Overall: {phrase}."
     )
     if note:
         narrative = f"{note} " + narrative

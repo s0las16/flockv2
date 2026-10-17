@@ -68,3 +68,17 @@ Return STRICT JSON with this exact schema — no prose, no markdown fences:
   even when the disc is not visible.
 
 Respond with JSON only."""
+
+CLOCK_PROMPT = """\
+You are given a cropped strip from the top of a camera frame.
+Read ONLY the camera's burned-in date/time overlay text, character for
+character. If the strip contains a timestamp (e.g. "17.10.26 12:30",
+"2026-10-17 08:00:02", "Sat 17 Oct 11:31"), transcribe it verbatim —
+do not normalize, complete, or guess missing digits. If there is no
+date/time overlay in the strip, return an empty list.
+
+Return exactly one JSON object and nothing else — no prose, no markdown
+fences:
+
+{"overlay_timestamps": ["<verbatim timestamp string>", ...]}
+"""

@@ -20,7 +20,7 @@ import re
 import shutil
 import subprocess
 
-from .prompts import CONDITIONS_PROMPT, SHADOW_PROMPT, TEXT_PROMPT
+from .prompts import CLOCK_PROMPT, CONDITIONS_PROMPT, SHADOW_PROMPT, TEXT_PROMPT
 from .schema import ClaimVerdict, Evidence
 
 # Approximate real-world heights (m) used to convert a shadow's pixel length
@@ -213,15 +213,26 @@ def detect_objects(frame_path: str, model_name: str = "yolo11n.pt") -> list[dict
 _MAX_IMG_EDGE = 2048  # keep base64 payloads sane for NIM endpoints
 
 
-def _data_url(frame_path: str) -> str:
-    """Read an image file as a base64 data-URL, downscaling if PIL is around."""
+def _data_url(frame_path: str, top_fraction: float | None = None) -> str:
+    """Read an image file as a base64 data-URL, downscaling if PIL is around.
+
+    With `top_fraction` (0-1), PIL crops the top slice of the frame and
+    upscales it ~2x — burned-in overlay text is tiny at full-frame scale
+    and small VLM encoders can't resolve it. Falls back to the whole frame
+    when PIL is unavailable.
+    """
     try:
         import io
 
         from PIL import Image
 
         with Image.open(frame_path) as img:
-            if max(img.size) > _MAX_IMG_EDGE:
+            if top_fraction:
+                w, h = img.size
+                img = img.crop((0, 0, w, max(1, round(h * top_fraction))))
+                scale = min(2.0, _MAX_IMG_EDGE / w)
+                img = img.resize((round(w * scale), round(img.size[1] * scale)))
+            elif max(img.size) > _MAX_IMG_EDGE:
                 img.thumbnail((_MAX_IMG_EDGE, _MAX_IMG_EDGE))
             buf = io.BytesIO()
             img.convert("RGB").save(buf, format="JPEG", quality=88)
@@ -296,7 +307,7 @@ class CosmosClient:
 
         self._client = OpenAI(base_url=self.base_url, api_key=key, timeout=timeout)
 
-    def _ask(self, frame_path: str, prompt: str) -> str:
+    def _ask(self, frame_path: str, prompt: str, top_fraction: float | None = None) -> str:
         """Send frame+prompt as a chat message; return raw text response."""
         resp = self._client.chat.completions.create(
             model=self.model,
@@ -307,7 +318,7 @@ class CosmosClient:
                         {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
-                            "image_url": {"url": _data_url(frame_path)},
+                            "image_url": {"url": _data_url(frame_path, top_fraction)},
                         },
                     ],
                 }
@@ -318,8 +329,8 @@ class CosmosClient:
         )
         return resp.choices[0].message.content or ""
 
-    def _json(self, frame_path: str, prompt: str) -> dict:
-        return _first_json_object(self._ask(frame_path, prompt))
+    def _json(self, frame_path: str, prompt: str, top_fraction: float | None = None) -> dict:
+        return _first_json_object(self._ask(frame_path, prompt, top_fraction))
 
     def locate_shadow(self, frame_path: str) -> dict | None:
         """->{object_class, base_point, shadow_tip, confidence} or None."""
@@ -340,6 +351,17 @@ class CosmosClient:
         """->{sky, precipitation, ground_wetness, lighting, streetlights, sun} or {}."""
         try:
             return self._json(frame_path, CONDITIONS_PROMPT)
+        except Exception:
+            return {}
+
+    def read_clock_overlay(self, frame_path: str) -> dict:
+        """->{overlay_timestamps} — dedicated read of the top strip.
+
+        Burned-in timestamps hug frame edges at small sizes; the crop
+        + upscale gives the VLM a legible view instead of guessing.
+        """
+        try:
+            return self._json(frame_path, CLOCK_PROMPT, top_fraction=0.3)
         except Exception:
             return {}
 

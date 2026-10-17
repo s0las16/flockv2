@@ -79,7 +79,7 @@ def _sun_elevation_deg(shadow_obs: dict, detections: list[dict]) -> float | None
         tilt = float(tilt) if tilt is not None else None
     except (TypeError, ValueError):
         tilt = None
-    if tilt is not None and tilt > 15:
+    if tilt is not None and tilt > 8:
         dy = vec["dy"] / max(math.sin(math.radians(tilt)), 0.3)
         length = math.hypot(vec["dx"], dy)
     else:
@@ -312,6 +312,11 @@ def run(
                 cond = cosmos.describe_conditions(f)
                 if cond:
                     conditions_list.append(cond)
+
+                clk = cosmos.read_clock_overlay(f)
+                if clk and clk.get("overlay_timestamps"):
+                    overlays.extend(clk["overlay_timestamps"])
+                    overlay_frames.append(f)
         except Exception as e:
             _note(pack, "vlm", e)
     elif use_vlm:

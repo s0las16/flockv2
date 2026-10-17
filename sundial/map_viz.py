@@ -59,6 +59,8 @@ _CSS = """\
 .smap-fb{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:11px;letter-spacing:.04em}
 .smap-vec{display:none;position:absolute;inset:0;z-index:2;background:#0a0d12}
 .smap-vec .vmap{border:none!important;border-radius:0!important}
+.smap-gm{display:none;position:absolute;inset:0;z-index:3;background:#0a0d12}
+.smap-gm iframe{width:100%;height:100%;border:0;filter:invert(.92) hue-rotate(180deg) brightness(.95) contrast(1.05)}
 .smap-sw{position:absolute;top:8px;right:8px;z-index:5;display:flex;gap:3px;background:rgba(5,7,12,.82);border:1px solid rgba(148,163,184,.18);border-radius:7px;padding:2px;backdrop-filter:blur(4px)}
 .smap-sw button{background:transparent;border:none;color:#94a3b8;font:10px/1.3 ui-monospace,monospace;padding:3px 6px;border-radius:5px;cursor:pointer}
 .smap-sw button:hover{color:#e2e8f0}
@@ -77,6 +79,7 @@ _JS = """\
       co = root.querySelector(".smap-c"),
       attr = root.querySelector(".smap-attr"),
       vecBox = root.querySelector(".smap-vec"),
+      gmBox = root.querySelector(".smap-gm"),
       sw = root.querySelector(".smap-sw"),
       fb = root.querySelector(".smap-fb");
   if (fb) fb.parentNode.removeChild(fb);
@@ -241,12 +244,29 @@ _JS = """\
     provKey = k; fails = 0; off = false;
     root.className = root.className.replace(/\\bsmap-off\\b/g, "").trim();
     if (vecBox) vecBox.style.display = (k === "vec") ? "block" : "none";
+    if (gmBox) {
+      if (k === "gmaps") {
+        gmBox.style.display = "block";
+        if (!gmBox.firstChild) {
+          var ifr = document.createElement("iframe");
+          ifr.setAttribute("loading", "lazy");
+          ifr.setAttribute("referrerpolicy", "no-referrer-when-downgrade");
+          var gurl = "https://" + "maps.google.com/maps?q=" +
+                     encodeURIComponent(CFG.lat + "," + CFG.lon) +
+                     "&z=" + Math.max(3, Math.min(17, Z)) + "&output=embed";
+          ifr.src = gurl;
+          gmBox.appendChild(ifr);
+        }
+      } else {
+        gmBox.style.display = "none";
+      }
+    }
     if (sw) {
       var btns = sw.querySelectorAll("button");
       for (var bi = 0; bi < btns.length; bi++)
         btns[bi].className = (btns[bi].getAttribute("data-p") === k) ? "on" : "";
     }
-    cov = null; layout();
+    if (k !== "gmaps") { cov = null; layout(); }
   }
   if (sw) {
     sw.addEventListener("click", function (e) {
@@ -484,10 +504,10 @@ def map_fragment(
                    if has_vec else '<div class="smap-vec"></div>')
         sw_html = (
             '<div class="smap-sw">'
+            '<button type="button" data-p="gmaps">Google</button>'
             '<button type="button" data-p="streets" class="on">Streets</button>'
-            '<button type="button" data-p="esri">Dark</button>'
             '<button type="button" data-p="sat">Satellite</button>'
-            '<button type="button" data-p="topo">Topo</button>'
+            '<button type="button" data-p="esri">Dark</button>'
             + vec_btn +
             "</div>"
         )
@@ -503,6 +523,7 @@ def map_fragment(
             '<div class="smap-attr">' + _e(_ATTR) + "</div>"
             '<div class="smap-hint">drag &middot; scroll to zoom</div>'
             "</div>"
+            '<div class="smap-gm"></div>'
             + vec_div + sw_html +
             "</div>"
             "<script>" + js + "</script>"

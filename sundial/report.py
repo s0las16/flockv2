@@ -626,6 +626,46 @@ def render_html(adj: Adjudication, out_path: str,
 
     rail_html = _loc_rail(extra, "")
 
+    # Simple detected-location hero for the main card
+    ex_loc = (extra.get("loc_summary") if isinstance(extra, dict) else None) or {}
+    if not isinstance(ex_loc, dict):
+        ex_loc = {}
+    raw_hp = ex_loc.get("best_name") or claim.claimed_place or ""
+    if isinstance(raw_hp, dict):
+        raw_hp = raw_hp.get("name") or raw_hp.get("cc") or ""
+    hero_place = str(raw_hp or "").strip()
+    pt_src = ex_loc.get("predicted") or ex_loc.get("anchor") or {}
+    if not isinstance(pt_src, dict):
+        pt_src = {}
+    hlat, hlon = pt_src.get("lat"), pt_src.get("lon")
+    hr_km = pt_src.get("radius_km") or pt_src.get("r_km")
+    coord_sub = ""
+    gmap_q = hero_place
+    try:
+        if hlat is not None and hlon is not None:
+            la_f, lo_f = float(hlat), float(hlon)
+            ns, ew = ("N" if la_f >= 0 else "S"), ("E" if lo_f >= 0 else "W")
+            coord_sub = f"{abs(la_f):.4f}° {ns}, {abs(lo_f):.4f}° {ew}"
+            if hr_km:
+                coord_sub += f" · ±{float(hr_km):.0f} km"
+            gmap_q = f"{la_f:.5f},{lo_f:.5f}"
+    except (TypeError, ValueError):
+        pass
+    hero_title = hero_place or "Location unknown"
+    gmap_btn = (
+        f'<a class="gmapbtn" id="gmapBtn" data-q="{_e(gmap_q)}" '
+        f'target="_blank" rel="noopener">Open in Google Maps &#8599;</a>'
+        if gmap_q else ""
+    )
+    coord_div = f'<div class="loccoords">{_e(coord_sub)}</div>' if coord_sub else ""
+    loc_hero_html = (
+        '<div class="lochero">'
+        '<div class="locherolbl">Detected location</div>'
+        f'<div class="locheroname">{_e(hero_title)}</div>'
+        f'{coord_div}{gmap_btn}'
+        '</div>'
+    )
+
     doc = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -753,6 +793,16 @@ h1 {{ font-size:12px; text-transform:uppercase; letter-spacing:.22em; color:#666
              padding:14px 18px; border-radius:0 10px 10px 0; }}
 details {{ margin-top:10px; }}
 summary {{ cursor:pointer; color:#666; font-size:12px; letter-spacing:.12em; text-transform:uppercase; }}
+.lochero {{ margin:4px 0 22px; padding:20px 22px; border-radius:14px;
+            background:rgba(255,255,255,.03); border:1px solid #1f1f24; }}
+.locherolbl {{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:#777; margin-bottom:6px; }}
+.locheroname {{ font-size:28px; font-weight:700; color:#f5f5f5; letter-spacing:-.01em; line-height:1.2; }}
+.loccoords {{ font-size:12px; color:#888; margin-top:6px; }}
+.gmapbtn {{ display:inline-block; margin-top:14px; padding:8px 14px; border-radius:8px;
+            background:#f5f5f5; color:#09090b; font-size:12px; font-weight:700;
+            text-decoration:none; letter-spacing:.03em; cursor:pointer; }}
+.gmapbtn:hover {{ background:#fff; }}
+.morebox {{ margin-top:18px; border-top:1px solid #1a1a1f; padding-top:14px; }}
 pre {{ font-size:11px; color:#999; background:rgba(0,0,0,.55); border:1px solid #1c1c1c;
       border-radius:10px; padding:14px; overflow:auto; max-height:320px; }}
 .empty {{ color:#555; }}
@@ -769,6 +819,7 @@ footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
   <div class="brand">Sundial &mdash; where was this really filmed?</div>
   <div class="layout">
     <div class="card" id="spot">
+      {loc_hero_html}
       <div class="verdictrow">
         <div>
           <div class="badge" id="verdictTxt" data-final="{_e(verdict.value)}">{_e(verdict.value)}</div>
@@ -782,13 +833,15 @@ footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
         </div>
         <div class="confsub">how sure<br>we are</div>
       </div>
-      <h1>{claim_head}</h1>
-      <div class="claim">{claim_html}</div>
-      <h1>What we checked</h1>
-      {evidence_html}
-      <h1>What it means</h1>
-      <p class="narrative">{_e(adj.narrative)}</p>
-      <details><summary>Technical details</summary><pre>{raw_json}</pre></details>
+      <details class="morebox"><summary>Show breakdown</summary>
+        <h1>{claim_head}</h1>
+        <div class="claim">{claim_html}</div>
+        <h1>What we checked</h1>
+        {evidence_html}
+        <h1>What it means</h1>
+        <p class="narrative">{_e(adj.narrative)}</p>
+        <details><summary>Technical details</summary><pre>{raw_json}</pre></details>
+      </details>
     </div>
     {rail_html}
   </div>
@@ -797,6 +850,10 @@ footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
 <script>
 // verdict scramble-in
 (function() {{
+  var gb = document.getElementById("gmapBtn");
+  if (gb && gb.dataset.q) {{
+    gb.href = "https://" + "www.google.com/maps/search/?api=1&query=" + encodeURIComponent(gb.dataset.q);
+  }}
   var el = document.getElementById("verdictTxt"), final = el.dataset.final,
       chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   el.textContent = final;

@@ -525,33 +525,6 @@ def _report_extra(adj) -> dict:
                         extra["map_static"] = img
                 except Exception:
                     pass
-            try:
-                from . import osint_chain
-
-                fv, ranked = {}, getattr(adj, "osint_ranked", []) or []
-                for card in ev:
-                    if getattr(card, "type", "") == "osint_features":
-                        fv = (getattr(card, "data", None) or {}).get("vector") or {}
-                        break
-                chain = osint_chain.build_chain(fv, ranked)
-                if chain and any(s.get("kind") != "rank" for s in chain):
-                    extra["chain_html"] = osint_chain.chain_html(chain)
-            except Exception:
-                pass
-            try:  # agent investigation transcript -> own rail block
-                from . import transcript_card
-
-                arun = getattr(adj, "agent_run", None)
-                if isinstance(arun, dict):
-                    ok_steps = [s for s in (arun.get("transcript") or [])
-                                if isinstance(s, dict) and s.get("ok", True)]
-                    if ok_steps:
-                        th = transcript_card.transcript_html(
-                            {**arun, "transcript": ok_steps})
-                        if th:
-                            extra["chain_html"] = (extra.get("chain_html") or "") + th
-            except Exception:
-                pass
     except Exception:
         pass
     return extra

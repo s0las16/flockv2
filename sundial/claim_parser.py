@@ -221,9 +221,34 @@ def _place_fallback(text: str, cov: list[tuple[int, int]]) -> str | None:
     segs = []
     for seg in cleaned.split(","):
         seg = seg.strip(" \t,.;:!?\"'()[]")
-        if seg and re.search(r"[a-zA-Z]", seg) and len(seg.split()) <= 4:
-            segs.append(seg)
-    return ", ".join(segs) if segs else None
+        if not seg or not re.search(r"[a-zA-Z]", seg) or len(seg.split()) > 4:
+            continue
+        if _RESIDUE_SEG.match(seg):
+            continue  # uncovered time/date residue, not a place
+        toks = seg.split()
+        if len(toks) <= 2 and all(_RESIDUE_TOK.match(t) for t in toks):
+            continue  # e.g. "two weeks", "next", "15 pm"
+        segs.append(seg)
+    joined = ", ".join(segs)
+    return joined if segs and len(joined) <= 60 else None
+
+
+# Uncovered leftovers that must never become a place: ISO 'T' separators,
+# invalid meridiems ("15pm"), clock fragments, and relative-time words the
+# parser intentionally doesn't resolve (past-claims convention).
+_RESIDUE_SEG = re.compile(
+    r"^(?:[Tt]|t\d[\d:]*|\d+|\d{1,4}\s*(?:am|pm|a\.?m\.?|p\.?m\.?)|"
+    r"\d{1,2}:\d{2}(?::\d{2})?|"
+    r"next|last|this|ago|later|after|before|morning|afternoon|evening|"
+    r"tonight|midnight|noon|weeks?|days?|months?|years?)$",
+    re.IGNORECASE,
+)
+_RESIDUE_TOK = re.compile(
+    r"^(?:\d+|am|pm|a\.?m\.?|p\.?m\.?|next|last|this|ago|later|after|"
+    r"before|weeks?|days?|months?|years?|one|two|three|four|five|six|"
+    r"seven|eight|nine|ten|few|couple)$",
+    re.IGNORECASE,
+)
 
 
 def _title(raw: str) -> str:

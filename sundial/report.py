@@ -82,12 +82,102 @@ def _cv(value: Any) -> ClaimVerdict:
         return ClaimVerdict.INCONCLUSIVE
 
 
+#: Evidence-card verdict wording — plain English instead of enum names.
+_PILL_WORD = {
+    ClaimVerdict.SUPPORTS: "supports",
+    ClaimVerdict.CONTRADICTS: "against",
+    ClaimVerdict.INCONCLUSIVE: "unclear",
+}
+
+#: Evidence type -> human label. Anything unmapped falls back to a
+#: title-cased, de-snake-cased version of the type string.
+_TYPE_LABEL = {
+    "clock": "On-screen clock",
+    "metadata": "File metadata",
+    "video_meta": "File details",
+    "camera_meta": "Camera details",
+    "cam_model": "Device fingerprint",
+    "exif_gps": "Embedded GPS tag",
+    "ocr": "Text in the video",
+    "ocr_boost": "Text in the video",
+    "ocr_dates": "Dates in the video",
+    "solar": "Sun position",
+    "sun_times": "Daylight check",
+    "suncalc": "Sun position",
+    "shadow": "Shadow direction",
+    "shadow_geo": "Shadow direction",
+    "weather": "Weather records",
+    "moonphase": "Moon phase",
+    "tz_check": "Time zone check",
+    "claim_tz": "Time zone check",
+    "geo": "Location lookup",
+    "geocell_pred": "Region estimate",
+    "geo_pred": "Region estimate",
+    "geo_matrix": "Location clues",
+    "geo_tables": "Location clues",
+    "geotips": "Location clues",
+    "region_vocab": "Location clues",
+    "pip2cc": "Country check",
+    "hier_geoguess": "Country guess",
+    "clip_geo": "Scene match",
+    "plate_ocr": "License plates",
+    "wiki": "Wikipedia check",
+    "wiki_places": "Nearby landmarks",
+    "overpass": "Map data check",
+    "osm_context": "Street map check",
+    "osint": "Clues from the footage",
+    "osint_chain": "Clue chain",
+    "agent_transcript": "Investigation steps",
+    "agent_loop": "Investigation",
+    "transcript": "Investigation steps",
+    "vlm": "Visual analysis",
+    "perception": "Visual analysis",
+    "landmark": "Landmark match",
+    "consistency": "Consistency check",
+    "audio": "Audio clues",
+}
+
+#: 2-letter country codes seen in ranked rows -> display names. Codes
+#: missing here render as the code itself (still better than nothing).
+_CC_NAME = {
+    "DE": "Germany", "FR": "France", "GB": "United Kingdom",
+    "UK": "United Kingdom", "IT": "Italy", "ES": "Spain", "PT": "Portugal",
+    "NL": "Netherlands", "BE": "Belgium", "CH": "Switzerland",
+    "AT": "Austria", "PL": "Poland", "CZ": "Czechia", "SE": "Sweden",
+    "NO": "Norway", "DK": "Denmark", "FI": "Finland", "IE": "Ireland",
+    "GR": "Greece", "US": "United States", "CA": "Canada", "MX": "Mexico",
+    "BR": "Brazil", "AR": "Argentina", "JP": "Japan", "KR": "South Korea",
+    "CN": "China", "IN": "India", "AU": "Australia", "NZ": "New Zealand",
+    "ZA": "South Africa", "EG": "Egypt", "TR": "Türkiye", "RU": "Russia",
+    "UA": "Ukraine", "IS": "Iceland", "LU": "Luxembourg",
+    "HU": "Hungary", "RO": "Romania", "BG": "Bulgaria", "HR": "Croatia",
+    "SI": "Slovenia", "SK": "Slovakia", "EE": "Estonia", "LV": "Latvia",
+    "LT": "Lithuania", "MT": "Malta", "CY": "Cyprus",
+}
+
+#: One-line plain-English read of the headline verdict.
+_VERDICT_SUB = {
+    Verdict.SUPPORTED: "the claim checks out",
+    Verdict.CONTRADICTED: "the claim doesn’t add up",
+    Verdict.INSUFFICIENT: "not enough to tell",
+}
+
+
+def _type_label(t: Any) -> str:
+    """Human label for an evidence type string."""
+    s = str(t or "").strip()
+    if s in _TYPE_LABEL:
+        return _TYPE_LABEL[s]
+    return s.replace("_", " ").replace("-", " ").title() or "Signal"
+
+
 def _pill(verdict: Any) -> str:
     cv = _cv(verdict)
     fg, bg, border = _PILL[cv]
+    word = _PILL_WORD.get(cv, _verdict_str(verdict))
     return (
         f'<span class="pill" style="color:{fg};background:{bg};'
-        f'border:1px solid {border}">{_e(_verdict_str(verdict))}</span>'
+        f'border:1px solid {border}">{_e(word)}</span>'
     )
 
 
@@ -226,19 +316,13 @@ def _ev_card(ev: "Evidence", idx: int) -> str:
         pct = 0.0
     frames = ""
     if ev.frames:
-        names = ", ".join(os.path.basename(str(f)) for f in ev.frames[:4])
-        frames = f'<div class="frames">cited: {_e(names)}</div>'
-    chan = ""
-    data = getattr(ev, "data", None)
-    if isinstance(data, dict):
-        c = _CHANNELS.get(str(data.get("channel") or ""))
-        if c:
-            chan = (f'<span class="chan" style="color:{c[1]};'
-                    f'border-color:{c[1]}44" title="{c[0]} channel">{c[0]}</span>')
+        n = len(ev.frames)
+        frames = (f'<div class="frames">seen in {n} frame'
+                  f'{"s" if n != 1 else ""}</div>')
     return (
         f'<div class="ev" style="animation-delay:{120 + idx * 90}ms">'
         f'<div class="evhead"><span class="evicon" style="color:{fg}">{icon}</span>'
-        f'<span class="etype">{_e(ev.type)}</span>{chan}{_pill(ev.verdict)}'
+        f'<span class="etype">{_e(_type_label(ev.type))}</span>{_pill(ev.verdict)}'
         f'<span class="econfnum">{pct:.0f}%</span></div>'
         f'<div class="confbar"><div class="conffill" data-w="{pct:.0f}" '
         f'style="background:{fg};width:{pct:.0f}%"></div></div>'
@@ -336,9 +420,11 @@ def _loc_rail(extra: "dict | None", mix_html: str) -> str:
             lis = []
             for name, sc in rows:
                 w = 0.0 if sc is None else min(100.0, max(0.0, sc * 100))
-                num = "" if sc is None else f'<span class="locscore">{sc:.2f}</span>'
+                num = "" if sc is None else (
+                    f'<span class="locscore">{sc * 100:.0f}%</span>')
+                disp = _CC_NAME.get(str(name).upper(), str(name))
                 lis.append(
-                    f'<div class="locrow"><span class="loccc">{_e(name)}</span>'
+                    f'<div class="locrow"><span class="loccc">{_e(disp)}</span>'
                     f'<span class="locbar"><span class="locfill" '
                     f'style="width:{w:.0f}%"></span></span>{num}</div>')
             bits.append('<div class="loclist">' + "".join(lis) + "</div>")
@@ -349,18 +435,18 @@ def _loc_rail(extra: "dict | None", mix_html: str) -> str:
     chain_block = ""
     if isinstance(chain, str) and chain.strip():
         chain_block = ('<div class="chainbox"><div class="railsub">'
-                       'reasoning chain</div>' + chain + "</div>")
+                       'why we think so</div>' + chain + "</div>")
 
     if has_geo:
         inner = map_block + loc_block + chain_block
     else:
         inner = ('<div class="nogeo"><span class="nogeoicon">' + _ICONS["geo"]
-                 + '</span>no geo read'
-                 '<span class="nogeosub">add a place claim</span></div>')
+                 + '</span>no location guess yet'
+                 '<span class="nogeosub">mention a place in your claim</span></div>')
 
     foot = f'<div class="railfoot">{mix_html}</div>' if mix_html else ""
     return ('<aside class="rail"><div class="railpanel">'
-            '<div class="railtitle">Where it thinks it is</div>'
+            '<div class="railtitle">Where it was likely filmed</div>'
             + inner + foot + "</div></aside>")
 
 
@@ -391,9 +477,9 @@ def render_html(adj: Adjudication, out_path: str,
 
     claim_bits = []
     if claim.claimed_time:
-        claim_bits.append(f'<span class="ck">time</span><b>{_e(claim.claimed_time)}</b>')
+        claim_bits.append(f'<span class="ck">when</span><b>{_e(claim.claimed_time)}</b>')
     if claim.claimed_place:
-        claim_bits.append(f'<span class="ck">place</span><b>{_e(claim.claimed_place)}</b>')
+        claim_bits.append(f'<span class="ck">where</span><b>{_e(claim.claimed_place)}</b>')
     claim_html = '<span class="cdot">·</span>'.join(claim_bits) or "<i>no claim recorded</i>"
     if claim.raw:
         claim_html += f'<div class="craw">&ldquo;{_e(claim.raw)}&rdquo;</div>'
@@ -431,25 +517,9 @@ def render_html(adj: Adjudication, out_path: str,
         else '<p class="empty">No evidence was collected.</p>'
     )
 
-    # signal mix: how much of the pack came from each provenance channel
-    mix_html = ""
-    try:
-        from . import provenance
-        mix = provenance.channel_summary(evidence)
-        if any(mix.values()):
-            parts = []
-            for name in ("visual", "external", "derived", "ground-truth"):
-                c = _CHANNELS[name]
-                parts.append(
-                    f'<span><b style="color:{c[1]}">{c[0]}</b>{mix[name]}</span>')
-            mix_html = ('<div class="signalmix"><span style="color:#475569">'
-                        'signal mix</span>' + "".join(parts) + "</div>")
-    except Exception:
-        pass
-
     raw_json = html.escape(json.dumps(adj.to_dict(), indent=2, default=str))
 
-    rail_html = _loc_rail(extra, mix_html)
+    rail_html = _loc_rail(extra, "")
 
     doc = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -536,6 +606,7 @@ body {{ font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, 
 .ringnum {{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
            font-size:17px; font-weight:700; color:#e5e5e5; transform:none; }}
 .confsub {{ font-size:11px; color:#666; letter-spacing:.14em; text-transform:uppercase; }}
+.vsub {{ color:#888; font-size:12px; margin-top:8px; letter-spacing:.04em; }}
 h1 {{ font-size:12px; text-transform:uppercase; letter-spacing:.22em; color:#666;
      margin:32px 0 12px; border-bottom:1px solid #1c1c1c; padding-bottom:8px; }}
 .claim {{ font-size:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:baseline; }}
@@ -590,27 +661,29 @@ footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
 </style></head>
 <body>
 <div class="wrap">
-  <div class="brand">Sundial &mdash; video provenance verification</div>
+  <div class="brand">Sundial &mdash; where was this really filmed?</div>
   <div class="layout">
     <div class="card" id="spot">
       <div class="verdictrow">
-        <div class="badge" id="verdictTxt" data-final="{_e(verdict.value)}">{_e(verdict.value)}</div>
+        <div>
+          <div class="badge" id="verdictTxt" data-final="{_e(verdict.value)}">{_e(verdict.value)}</div>
+          <div class="vsub">{_e(_VERDICT_SUB.get(verdict, ""))}</div>
+        </div>
         <div class="ringwrap">
           <svg class="ring" viewBox="0 0 86 86"><circle class="bg" cx="43" cy="43" r="36" fill="none" stroke-width="6"/>
           <circle class="fg" id="ringFg" cx="43" cy="43" r="36" fill="none" stroke-width="6"
                   style="stroke-dashoffset:{226.2 * (1 - conf_pct / 100):.1f}"/></svg>
           <div class="ringnum" id="confNum" data-target="{conf_pct:.0f}">{conf_pct:.0f}%</div>
         </div>
-        <div class="confsub">adjudicator<br>confidence</div>
+        <div class="confsub">how sure<br>we are</div>
       </div>
-      <h1>Claim under review</h1>
+      <h1>The claim</h1>
       <div class="claim">{claim_html}</div>
-      <div class="clip">clip&nbsp;&nbsp;{_e(pack.clip)}</div>
-      <h1>Evidence — {len(evidence)} signals</h1>
+      <h1>What we checked</h1>
       {evidence_html}
-      <h1>Adjudicator narrative</h1>
+      <h1>What it means</h1>
       <p class="narrative">{_e(adj.narrative)}</p>
-      <details><summary>Raw evidence pack</summary><pre>{raw_json}</pre></details>
+      <details><summary>Technical details</summary><pre>{raw_json}</pre></details>
     </div>
     {rail_html}
   </div>

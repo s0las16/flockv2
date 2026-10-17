@@ -99,7 +99,14 @@ def _get(item: Any, key: str, default=None):
 
 
 def _e(value: Any) -> str:
-    return html.escape("" if value is None else str(value))
+    """Escape for element-text context — &<> only.
+
+    The fragment is spliced as element content (never into an attribute,
+    same as osint_chain.chain_html), so quotes are left literal: that
+    keeps the rendered source reading 'tool("arg")' exactly like the
+    call shape the spec specifies.
+    """
+    return html.escape("" if value is None else str(value), quote=False)
 
 
 def _num(x: Any, default: float = 0.0) -> float:

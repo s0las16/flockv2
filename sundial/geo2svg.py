@@ -208,7 +208,9 @@ def _poly_visible(rings, min_lat, min_lon, max_lat, lat_span, lon_span):
     if min(p[1] for p in pts) > max_lat or max(p[1] for p in pts) < min_lat:
         return False
     framed = [(_flon(p[0], min_lon), p[1]) for p in pts]
-    if min(fx for fx, _ in framed) <= lon_span:
+    # flon range is [min_lon, min_lon+360); the visible window is the first
+    # lon_span degrees of it, i.e. flon <= min_lon + lon_span.
+    if min(fx for fx, _ in framed) <= min_lon + lon_span:
         return True
     # No vertex inside the lon range — the polygon may still swallow the
     # whole view (tiny bbox deep inside a big country). Test the four
@@ -618,6 +620,9 @@ if __name__ == "__main__":
         lambda la, lo: project(la, lo, (40, -10, 60, 30), 400, 200),
         -10.0, 0.15)
     check("normal ring single subpath", plain_d.count("M") == 1)
+    # tiny bbox deep inside one big country still emits land (pip fallback)
+    p_inner = paths_for_bbox(auto_bbox(60.0, 100.0, 6))
+    check("bbox inside country renders", "<path" in p_inner)
 
     # --- svg_map -------------------------------------------------------------
     svg = svg_map(de_bb, highlight_cc="DE",

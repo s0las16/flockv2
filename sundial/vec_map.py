@@ -572,6 +572,18 @@ def _self_test() -> int:
               fragment_for(object()), str))
     check("fragment_for bare obj -> ''", fragment_for(object()) == "")
 
+    # -- real geo2svg smoke test (if the sibling file has landed) -----------
+    for key in ("geo2svg", "sundial.geo2svg"):
+        sys.modules.pop(key, None)
+    if _geo2svg() is not None:
+        f4 = vec_fragment(full)
+        check("real geo2svg -> svg or dark plate",
+              "<svg" in f4 or "vmap-fb" in f4)
+        check("real geo2svg fragment keeps chrome",
+              'class="vmap"' in f4 and "Natural Earth" in f4)
+    else:
+        print("  SKIP  real geo2svg not present yet (stub covered the API)")
+
     print(f"vec_map self-test: {'ALL PASS' if not fails else f'{fails} FAIL'}")
     return 1 if fails else 0
 

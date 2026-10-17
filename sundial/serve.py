@@ -414,7 +414,19 @@ def _get_job(jobid: str) -> dict | None:
     if not _valid_jobid(jobid):
         return None
     with _LOCK:
-        return _JOBS.get(jobid)
+        job = _JOBS.get(jobid)
+    if job is not None:
+        return job
+    try:  # persisted job from a previous server lifetime
+        from . import job_store
+        job = job_store.load(jobid)
+        if job:
+            with _LOCK:
+                _JOBS[jobid] = job
+            return job
+    except Exception:
+        pass
+    return None
 
 
 def _sweep() -> None:
@@ -426,6 +438,11 @@ def _sweep() -> None:
         for j in stale:
             jb = _JOBS.pop(j)
             shutil.rmtree(jb.get("dir", ""), ignore_errors=True)
+    try:
+        from . import job_store
+        job_store.sweep(_JOB_TTL_S)
+    except Exception:
+        pass
 
 
 def _cleanup_all() -> None:
@@ -543,6 +560,12 @@ def _worker(jobid: str, video_path: str, claim_time: str | None,
         with _LOCK:
             job["status"] = "error"
             job["error"] = f"{type(e).__name__}: {e}"
+    finally:  # persist result + report so restarts don't wipe results
+        try:
+            from . import job_store
+            job_store.save(jobid, dict(job))
+        except Exception:
+            pass
 
 
 def _start_job(data: bytes, filename: str, claim_time: str | None,

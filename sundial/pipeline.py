@@ -359,7 +359,15 @@ def _claimed_utc(lat: float, lon: float, claim_time_iso: str,
     changes within the range, which puts summer-date claims off by an hour.
     Falls back to utc_offset_seconds, then to treating the claim as UTC.
     """
-    naive = datetime.fromisoformat(claim_time_iso).replace(tzinfo=None)
+    # May raise TypeError/ValueError — callers guard on ISO shape upstream.
+    dt = datetime.fromisoformat(str(claim_time_iso))
+    # An aware claim already pins the instant — trust its own offset; the
+    # local-zone conversion below is only for naive wall-clock claims.
+    if dt.tzinfo is not None:
+        utc = dt.astimezone(timezone.utc)
+        return utc.isoformat(), (
+            f"aware claim {dt.isoformat()} -> UTC passthrough")
+    naive = dt.replace(tzinfo=None)
     try:
         from . import weather
         if arch is None:

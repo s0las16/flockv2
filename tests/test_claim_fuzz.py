@@ -426,8 +426,7 @@ def test_claim_to_args_output_feeds_resolvers_without_exception():
 # reproduced wrong-value bugs (xfail — they assert CORRECT behaviour)
 # ===========================================================================
 
-@_known_bug
-def test_xfail_iso_T_separator_leaks_as_place():
+def test_fixed_iso_T_separator_leaks_as_place():
     r = claim_parser.parse_claim_text("2025-06-15T15:00", _FIXED_NOW)
     _finding("MED", f"ISO 'T' separator leaks as place: "
                     f"parse('2025-06-15T15:00')['place'] == {r['place']!r} "
@@ -435,16 +434,14 @@ def test_xfail_iso_T_separator_leaks_as_place():
     assert r["place"] is None
 
 
-@_known_bug
-def test_xfail_invalid_clock_residue_leaks_as_place():
+def test_fixed_invalid_clock_residue_leaks_as_place():
     r = claim_parser.parse_claim_text("2025-06-15T25:00", _FIXED_NOW)
     _finding("MED", f"rejected clock leaks as place: "
                     f"parse('2025-06-15T25:00')['place'] == {r['place']!r}")
     assert r["place"] is None
 
 
-@_known_bug
-def test_xfail_invalid_meridiem_leaks_as_place():
+def test_fixed_invalid_meridiem_leaks_as_place():
     bad = []
     for s in ("15pm", "13pm", "0pm"):
         r = claim_parser.parse_claim_text(s, _FIXED_NOW)
@@ -470,8 +467,7 @@ def test_xfail_relative_phrases_leak_as_place():
     assert not bad
 
 
-@_known_bug
-def test_xfail_fallback_place_has_no_length_cap():
+def test_fixed_fallback_place_has_no_length_cap():
     """_clean_place caps at 60 chars (claim_parser.py:189) but
     _place_fallback doesn't — a 500-char 'place' reaches the geocoder."""
     r = claim_parser.parse_claim_text("a" * 500, _FIXED_NOW)
@@ -493,8 +489,7 @@ def test_xfail_date_only_claim_survives_to_args():
     assert t_iso is not None
 
 
-@_known_bug
-def test_xfail_tz_suffix_silently_stripped():
+def test_fixed_tz_suffix_silently_stripped():
     """_claimed_utc does .replace(tzinfo=None) (pipeline.py:362): a claim that
     is already UTC ('Z') is re-interpreted as local time -> hours off."""
     bad = []

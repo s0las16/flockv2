@@ -66,8 +66,7 @@ def test_writes_file_with_core_content():
     assert "filmed in London mid-afternoon" in doc           # raw claim quote
     for ev in evs:                                           # every signal rendered
         assert ev.summary in doc
-        assert f'<span class="etype">{ev.type}</span>' in doc
-    assert "Evidence — 2 signals" in doc
+    assert "What we checked" in doc
     assert "requestAnimationFrame" in doc                    # animation JS shipped
 
 
@@ -116,7 +115,10 @@ def test_pill_colors_differ_per_claim_verdict():
                    (ClaimVerdict.INCONCLUSIVE, "#94a3b8")):
         pill = f'class="pill" style="color:{fg};'
         assert pill in doc, cv
-        assert f'>{cv.value}</span>' in doc, cv             # pill label rendered
+        word = {ClaimVerdict.SUPPORTS: "supports",
+                ClaimVerdict.CONTRADICTS: "against",
+                ClaimVerdict.INCONCLUSIVE: "unclear"}[cv]
+        assert f'>{word}</span>' in doc, cv                    # pill label rendered
 
 
 def test_solar_evidence_gets_sunviz():
@@ -160,17 +162,16 @@ def test_solar_evidence_without_angles_no_sunviz():
     assert 'class="sunviz"' not in doc
 
 
-def test_frames_render_as_cited_basenames():
+def test_frames_render_as_frame_count():
     ev = Evidence(type="texture", summary="film grain consistent",
                   verdict=ClaimVerdict.SUPPORTS, confidence=0.5,
                   frames=["/tmp/frames/f_0001.jpg", "deep/dir/f_0002.jpg",
                           "f_0003.jpg", "/x/f_0004.jpg", "f_0005_extra.jpg"])
     doc = _doc(_adj(evidence=[ev]))
-    m = re.search(r'class="frames">cited: ([^<]+)<', doc)
-    assert m, "no cited: line rendered"
-    # basenames only, first four frames
-    assert m.group(1) == "f_0001.jpg, f_0002.jpg, f_0003.jpg, f_0004.jpg"
-    assert "/" not in m.group(1) and "f_0005_extra.jpg" not in m.group(1)
+    m = re.search(r'class="frames">seen in (\d+) frames?<', doc)
+    assert m, "no frame-count line rendered"
+    assert m.group(1) == "5"                                   # count, not filenames
+    assert "f_0001.jpg" not in doc.split("Technical details")[0]
 
 
 def test_confbar_data_w_matches_confidence():
@@ -192,7 +193,7 @@ def test_empty_evidence_pack_still_renders():
     doc = _doc(_adj(verdict=Verdict.INSUFFICIENT, confidence=0.2, evidence=[]))
     assert 'data-final="INSUFFICIENT"' in doc
     assert "No evidence was collected." in doc
-    assert "Evidence — 0 signals" in doc
+    assert "What we checked" in doc
     assert 'class="sunviz"' not in doc
 
 

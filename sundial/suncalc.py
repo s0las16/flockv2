@@ -396,7 +396,6 @@ if __name__ == "__main__":
             try:
                 from .solar import sun_position as _sp
             except Exception:
-                _ensure = None
                 import os
                 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 if root not in sys.path:

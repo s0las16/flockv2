@@ -145,7 +145,7 @@ def test_extra_none_renders_nogeo_empty_state():
     assert '<aside class="rail">' in doc, "rail aside missing entirely"
     assert 'class="nogeo"' in doc, \
         f"expected nogeo empty-state; rail shows: {_map_region(doc)}"
-    assert "no geo read" in doc
+    assert "no location guess yet" in doc
     assert 'class="mapbox"' not in doc, "map block rendered despite no geo data"
     # no <svg> map is required for a complete page — document must be whole
     assert doc.startswith("<!DOCTYPE html>")
@@ -172,10 +172,10 @@ def test_loc_summary_renders_best_name_and_ranked_bars():
                              "ranked": [{"cc": "DE", "score": 0.7}]}}
     doc = _doc(_demo_adj(), extra)
     assert '<div class="locbest">Germany</div>' in doc, "best_name readout missing"
-    assert '<span class="loccc">DE</span>' in doc, "ranked cc label missing"
+    assert '<span class="loccc">Germany</span>' in doc, "ranked cc label missing"
     assert re.search(r'class="locfill" style="width:70%"', doc), \
         "expected confidence bar at 70% for score 0.7"
-    assert '<span class="locscore">0.70</span>' in doc, "numeric score missing"
+    assert '<span class="locscore">70%</span>' in doc, "numeric score missing"
 
 
 # --------------------------------------------------------------------------- #
@@ -218,7 +218,7 @@ def test_chain_html_renders_chainbox():
     doc = _doc(_demo_adj(), {"chain_html": "<ol><li>step</li></ol>"})
     assert 'class="chainbox"' in doc, "chainbox container missing"
     assert "<ol><li>step</li></ol>" in doc, "chain fragment not verbatim"
-    assert "reasoning chain" in doc, "chainbox subheading missing"
+    assert "why we think so" in doc, "chainbox subheading missing"
 
 
 # --------------------------------------------------------------------------- #

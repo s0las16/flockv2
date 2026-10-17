@@ -554,6 +554,20 @@ def _geo_markers(evs) -> list:
 
     for t, d in evs:
         tl = t.lower()
+        if "geoclip" in tl or tl == "geo_clip":  # model card: the best
+            # guess is already the pred pin — show the runner-ups instead
+            for c in (d.get("candidates") or [])[1:]:
+                if not isinstance(c, dict):
+                    continue
+                pt = _latlon(c.get("lat"), c.get("lon"))
+                if not pt:
+                    continue
+                try:
+                    pct = f" ({float(c.get('prob') or 0) * 100:.0f}%)"
+                except (TypeError, ValueError):
+                    pct = ""
+                add(pt[0], pt[1], f"alt model guess{pct}", "geo")
+            continue
         wiki_kind = "wiki" if "wiki" in tl else "geo"
         for key in ("places", "matches", "hits", "pois", "results"):
             for item in d.get(key) or []:
@@ -672,6 +686,29 @@ def _bands(evs) -> list:
 # Predicted point — score-weighted centroid of the top-3 candidates
 # --------------------------------------------------------------------------
 
+def _model_pred(evs) -> "dict | None":
+    """A trained image->GPS model card (type carries lat/lon/r_km in data).
+
+    GeoCLIP predictions are real coordinates — far better than a
+    country-centroid blend when no landmark was named. First card wins."""
+    for t, d in evs:
+        if not isinstance(d, dict):
+            continue
+        tl = str(t).lower()
+        if "geoclip" not in tl and tl != "geo_clip":
+            continue
+        pt = _latlon(d.get("lat"), d.get("lon"))
+        if not pt:
+            continue
+        try:
+            r = float(d.get("r_km") or d.get("radius_km") or 200.0)
+        except (TypeError, ValueError):
+            r = 200.0
+        return {"lat": pt[0], "lon": pt[1],
+                "radius_km": int(max(50.0, min(2000.0, r)))}
+    return None
+
+
 def _predict(rows: list) -> dict | None:
     """Weighted centroid of the top-3 ranked countries + radius_km from the
     score spread: a dominant #1 tightens the circle toward country scale,
@@ -746,6 +783,15 @@ def summarize(evidence_list: list, anchor: tuple | None,
     try:
         pred = _predict(rows)
         named = _best_named_place(evs)
+        gclip = _model_pred(evs)
+        corroborated = False
+        if summary["anchor"] and rows:  # cues corroborate the claimed
+            # country -> pin the claimed place itself, not the country's
+            # geographic middle ("Buckingham Palace is in London", not
+            # "somewhere around the middle of the UK")
+            anch_cc = _cc_of_point(
+                summary["anchor"]["lat"], summary["anchor"]["lon"])
+            corroborated = bool(anch_cc and anch_cc == rows[0]["cc"])
         if named:  # an identified landmark is a far better pin than a
             # country-centroid blend — 25 km ring says "in/around here"
             pred = {"lat": named["lat"], "lon": named["lon"], "r_km": 25.0}
@@ -754,16 +800,20 @@ def summarize(evidence_list: list, anchor: tuple | None,
                 if named.get("cc") else named["name"])
             if named.get("cc"):
                 summary["best_cc"] = named["cc"]
-        elif summary["anchor"] and rows:  # cues corroborate the claimed
-            # country -> pin the claimed place itself, not the country's
-            # geographic middle ("Buckingham Palace is in London", not
-            # "somewhere around the middle of the UK")
-            anch_cc = _cc_of_point(
-                summary["anchor"]["lat"], summary["anchor"]["lon"])
-            if anch_cc and anch_cc == rows[0]["cc"]:
-                pred = {"lat": summary["anchor"]["lat"],
-                        "lon": summary["anchor"]["lon"], "r_km": 60.0}
-                summary["best_name"] = claim_label
+        elif corroborated:
+            pred = {"lat": summary["anchor"]["lat"],
+                    "lon": summary["anchor"]["lon"], "r_km": 60.0}
+            summary["best_name"] = claim_label
+        elif gclip:  # no landmark, claim not corroborated — the trained
+            # model's own coordinate estimate beats the country blend;
+            # in the no-claim flow it IS the answer
+            pred = gclip
+            mcc = _cc_of_point(gclip["lat"], gclip["lon"])
+            if mcc:
+                summary["best_cc"] = mcc
+                summary["best_name"] = _cc_name(mcc) or mcc
+            else:
+                summary["best_name"] = "model estimate"
         if pred:
             summary["predicted"] = pred
             label = (f"predicted: {summary['best_name']}"

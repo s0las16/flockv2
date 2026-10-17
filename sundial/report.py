@@ -120,6 +120,7 @@ _TYPE_LABEL = {
     "pip2cc": "Country check",
     "hier_geoguess": "Country guess",
     "clip_geo": "Scene match",
+    "geo_clip": "Model estimate",
     "plate_ocr": "License plates",
     "wiki": "Wikipedia check",
     "wiki_places": "Nearby landmarks",
@@ -558,6 +559,13 @@ def render_html(adj: Adjudication, out_path: str,
     claim_html = '<span class="cdot">·</span>'.join(claim_bits) or "<i>no claim recorded</i>"
     if claim.raw:
         claim_html += f'<div class="craw">&ldquo;{_e(claim.raw)}&rdquo;</div>'
+    # no claim at all = guess mode: the page should read like a location
+    # estimate, not a failed verification
+    guess_mode = not (claim.claimed_time or claim.claimed_place
+                      or str(claim.raw or "").strip())
+    claim_head = "The task" if guess_mode else "The claim"
+    if guess_mode:
+        claim_html = "<i>work out where this was filmed</i>"
 
     # order the evidence like an argument: contradicts, supports, then the rest
     order = {ClaimVerdict.CONTRADICTS: 0, ClaimVerdict.SUPPORTS: 1, ClaimVerdict.INCONCLUSIVE: 2}
@@ -744,7 +752,7 @@ footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
       <div class="verdictrow">
         <div>
           <div class="badge" id="verdictTxt" data-final="{_e(verdict.value)}">{_e(verdict.value)}</div>
-          <div class="vsub">{_e(_VERDICT_SUB.get(verdict, ""))}</div>
+          <div class="vsub">{_e("no claim to check — best guess is on the map" if guess_mode else _VERDICT_SUB.get(verdict, ""))}</div>
         </div>
         <div class="ringwrap">
           <svg class="ring" viewBox="0 0 86 86"><circle class="bg" cx="43" cy="43" r="36" fill="none" stroke-width="6"/>
@@ -754,7 +762,7 @@ footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
         </div>
         <div class="confsub">how sure<br>we are</div>
       </div>
-      <h1>The claim</h1>
+      <h1>{claim_head}</h1>
       <div class="claim">{claim_html}</div>
       <h1>What we checked</h1>
       {evidence_html}

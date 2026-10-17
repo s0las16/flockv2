@@ -418,7 +418,9 @@ def run(
         claim=Claim(
             claimed_time=claim_time,
             claimed_place=claim_place,
-            raw=f"filmed at {claim_time or 'unknown time'}, {claim_place or 'unknown place'}",
+            raw=(f"filmed at {claim_time or 'unknown time'}, "
+                 f"{claim_place or 'unknown place'}")
+                if (claim_time or claim_place) else None,
         ),
     )
     try:
@@ -780,6 +782,18 @@ def run(
             prior = clip_geo.geo_prior(frames[:6], top_k=8)
             if prior:
                 pack.add(clip_geo.clip_evidence(prior, claimed_cc))
+    except Exception:
+        pass
+    try:  # GeoCLIP — trained image->GPS model; predicts actual coordinates.
+        # Lazy like clip_geo: geoclip+torch on the VM env, silent elsewhere.
+        from . import geo_clip
+        if geo_clip.available():
+            rows = geo_clip.predict_coords(frames[:6])
+            if rows:
+                gc_pred = geo_clip.pred_summary(rows)
+                if gc_pred:
+                    osint_vec["_geoclip_pred"] = gc_pred
+                pack.add(geo_clip.geoclip_evidence(rows, anchor, claimed_cc))
     except Exception:
         pass
     try:

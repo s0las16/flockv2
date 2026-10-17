@@ -38,41 +38,53 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 # Registry order matters for best_dark(): entries are probed in order and
 # the first dark, keyless pass wins — preferred providers go first.
+# Verified live Oct 2026: CARTO raster tiles went key-required (HTTP 200 +
+# a fixed "API KEY REQUIRED" placeholder PNG for every tile) — they stay
+# in the registry for diagnostics but lose best_dark to Esri.
 PROVIDERS = [
+    {
+        "id": "esri_darkgray",
+        "name": "Esri World Dark Gray Base",
+        "url_template":
+            "https://server.arcgisonline.com/ArcGIS/rest/services/"
+            "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        "subdomains": "",
+        "dark": True,
+        "attribution": "Esri, HERE, Garmin, © OpenStreetMap contributors",
+        "needs_key": False,
+        "notes": "VERIFIED keyless dark raster (real distinct tiles). "
+                 "NOTE the {z}/{y}/{x} order — differs from XYZ providers. "
+                 "Worldwide z0-10, populated areas to ~16.",
+    },
     {
         "id": "carto_dark",
         "name": "CARTO Dark Matter",
         "url_template":
-            "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+            "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{key}",
         "subdomains": "abcd",
         "dark": True,
         "attribution": "© OpenStreetMap contributors © CARTO",
-        "needs_key": False,
-        "notes": "the historical default — free, keyless, z0..20",
+        "needs_key": True,
+        "key_env": "SUNDIAL_CARTO_KEY",
+        "key_param": "?key={key}",
+        "notes": "KEY REQUIRED since ~Sep 2026 — keyless requests return "
+                 "200 + an identical 'API KEY REQUIRED' placeholder PNG "
+                 "(probe detects it via identical bytes). Free key at "
+                 "carto.com/basemaps/apikey; set SUNDIAL_CARTO_KEY to "
+                 "re-enable (best style match when keyed).",
     },
     {
-        "id": "carto_dark_fastly",
-        "name": "CARTO Dark Matter (Fastly mirror)",
+        "id": "mella_dark",
+        "name": "Mella Dark Basemap",
         "url_template":
-            "https://cartodb-basemaps-{s}.global.ssl.fastly.net"
-            "/dark_all/{z}/{x}/{y}.png",
-        "subdomains": "abcd",
+            "https://basemap.queeniemella.cc/tiles/countries/{z}/{x}/{y}.png",
+        "subdomains": "",
         "dark": True,
-        "attribution": "© OpenStreetMap contributors © CARTO",
+        "attribution": "© OpenStreetMap contributors — queeniemella",
         "needs_key": False,
-        "notes": "same tiles on the legacy Fastly CDN — fallback host "
-                 "when basemaps.cartocdn.com is blocked or down",
-    },
-    {
-        "id": "carto_light",
-        "name": "CARTO Positron",
-        "url_template":
-            "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-        "subdomains": "abcd",
-        "dark": False,
-        "attribution": "© OpenStreetMap contributors © CARTO",
-        "needs_key": False,
-        "notes": "light twin of the default",
+        "notes": "VERIFIED keyless dark raster (real tiles). Indie "
+                 "single-operator service built for the CARTO-key gap — "
+                 "works today, uptime unproven. Third in line.",
     },
     {
         "id": "osm_standard",
@@ -83,18 +95,9 @@ PROVIDERS = [
         "dark": False,
         "attribution": "© OpenStreetMap contributors",
         "needs_key": False,
-        "notes": "OSM tile-usage policy applies — keep loads light",
-    },
-    {
-        "id": "wikimedia",
-        "name": "Wikimedia Maps",
-        "url_template":
-            "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png",
-        "subdomains": "",
-        "dark": False,
-        "attribution": "© OpenStreetMap contributors — Wikimedia Maps",
-        "needs_key": False,
-        "notes": "single host, no {s} subdomain",
+        "notes": "VERIFIED keyless (light style). OSM tile-usage policy "
+                 "applies — keep loads light; blocked clients get a "
+                 "200 + error PNG + x-blocked header.",
     },
     {
         "id": "opentopomap",
@@ -106,7 +109,20 @@ PROVIDERS = [
         "attribution": "© OpenStreetMap contributors, SRTM | "
                        "map style © OpenTopoMap (CC-BY-SA)",
         "needs_key": False,
-        "notes": "topographic shading over a light basemap",
+        "notes": "VERIFIED keyless (light topographic). Fair-use limits.",
+    },
+    {
+        "id": "wikimedia",
+        "name": "Wikimedia Maps",
+        "url_template":
+            "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png",
+        "subdomains": "",
+        "dark": False,
+        "attribution": "© OpenStreetMap contributors — Wikimedia Maps",
+        "needs_key": False,
+        "excluded": True,
+        "notes": "EXCLUDED — ToS prohibits third-party use since Oct 2020. "
+                 "Kept for diagnostics only.",
     },
     {
         "id": "openfreemap",
@@ -117,19 +133,18 @@ PROVIDERS = [
         "dark": False,
         "attribution": "© OpenStreetMap contributors — OpenFreeMap",
         "needs_key": False,
-        "notes": "UNREACHABLE as raster — the styles/liberty PNG endpoint "
-                 "404s (vector-tile service; the style JSON at "
-                 "/styles/liberty answers 200). Kept in the registry so a "
-                 "probe failure is diagnosable; excluded from best_dark "
-                 "by virtue of not being dark anyway.",
+        "excluded": True,
+        "notes": "EXCLUDED — vector-tile service; the raster endpoint "
+                 "returns empty bytes (verified). Needs MapLibre, "
+                 "unusable for the PNG pipeline.",
     },
 ]
 
 # Module-attribute pattern: best_dark() rewrites this to the winner's
 # url_template so renderers can read map_health.HEALTHY_TILE once probed.
-# Before any probe it stays at the historical CARTO default.
+# Default is the verified keyless Esri dark raster.
 HEALTHY_TILE = next(
-    (p["url_template"] for p in PROVIDERS if p["id"] == "carto_dark"), "")
+    (p["url_template"] for p in PROVIDERS if p["id"] == "esri_darkgray"), "")
 
 _choice = {"settled": False, "provider": None}  # best_dark() cache
 
@@ -247,7 +262,7 @@ def best_dark(timeout=6) -> dict | None:
     global HEALTHY_TILE
     try:
         if _choice["settled"]:
-            return _choice["provider"]
+            return last_choice()  # a copy — callers can't corrupt the cache
     except Exception:
         pass
     picked = None

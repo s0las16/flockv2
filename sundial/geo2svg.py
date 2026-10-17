@@ -605,11 +605,19 @@ if __name__ == "__main__":
     check("paths_for_bbox emits <path>", "<path" in p,
           f"({len(p)} chars)")
     check("highlight class applied", 'class="land hl"' in p)
-    check("no wraparound chords (huge x)",
-          not any(float(v) > 1000 for v in
-                  "".join(p).replace(",", " ").replace("M", " ")
-                  .replace("L", " ").replace("Z", " ").split()
-                  if v.lstrip("-").replace(".", "", 1).isdigit()))
+    # antimeridian: a ring crossing ±180 splits into M-subpaths instead of
+    # drawing a chord across the map
+    seam_d = _poly_path(
+        [[(170, 10), (179, 10), (-179, 10), (-170, 10), (170, 10)]],
+        lambda la, lo: project(la, lo, (-85, -180, 85, 180), 360, 170),
+        -180.0, 0.0)
+    check("antimeridian ring split",
+          seam_d.count("M") == 3 and "L" in seam_d, f"({seam_d!r})")
+    plain_d = _poly_path(
+        [[(10, 50), (12, 51), (14, 50), (10, 50)]],
+        lambda la, lo: project(la, lo, (40, -10, 60, 30), 400, 200),
+        -10.0, 0.15)
+    check("normal ring single subpath", plain_d.count("M") == 1)
 
     # --- svg_map -------------------------------------------------------------
     svg = svg_map(de_bb, highlight_cc="DE",

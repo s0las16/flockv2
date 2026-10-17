@@ -472,6 +472,7 @@ def run(
     conditions_list: list[dict] = []
     osint_blobs: list[dict] = []      # per-frame OSINT scene-feature dicts
     geoguesses: list[dict] = []       # per-frame direct country guesses
+    plate_reads: list[dict] = []      # per-frame plate OCR reads (country strip)
     shadow_obs_pairs: list[tuple[str, dict]] = []  # (frame, shadow obs)
     marking_pairs: list[tuple[str, str]] = []      # (frame, marking text)
     sun_elevs: list[float] = []
@@ -564,6 +565,14 @@ def run(
                     gg = cosmos.geoguess(f)
                     if gg:
                         geoguesses.append(gg)
+                    try:  # plate country-strip read — crop VLM call only when regions exist
+                        from . import plate_ocr
+                        regions = plate_ocr.plate_regions(f, dets_cache.get(f))
+                        if regions:
+                            plate_reads.extend(
+                                plate_ocr.read_plates(cosmos._ask, f, regions))
+                    except Exception:
+                        pass
                 except Exception:
                     continue  # one bad frame must not sink the rest
         except Exception as e:
@@ -768,6 +777,12 @@ def run(
         if geoguesses:
             pack.add(_gg.geoguess_evidence(
                 _gg.aggregate_guesses(geoguesses), claimed_cc))
+    except Exception:
+        pass
+    try:
+        from . import plate_ocr
+        if plate_reads:
+            pack.add(plate_ocr.plate_evidence(plate_reads, claimed_cc))
     except Exception:
         pass
     try:

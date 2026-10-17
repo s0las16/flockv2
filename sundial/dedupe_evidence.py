@@ -25,8 +25,9 @@ if TYPE_CHECKING:  # annotations only — the real import is lazy (see _schema)
 #: Evidence.type values that all speak to "where was this filmed" — one
 #: redundant signal family as far as the report is concerned.
 GEO_FAMILY_TYPES = frozenset({
-    "geo", "geo_match", "landmark", "geoguess", "sign_style",
-    "vegetation", "language", "plate_style", "osint", "osint_features",
+    "geo", "geo_match", "geo_pred", "geotips", "landmark", "geoguess",
+    "sign_style", "vegetation", "language", "plate_style", "plate_ocr",
+    "osint", "osint_features", "osint_chain",
     "poi", "wiki_landmark", "wiki", "hemisphere", "timezone",
 })
 

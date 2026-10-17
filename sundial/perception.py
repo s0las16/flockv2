@@ -259,7 +259,10 @@ def _first_json_object(text: str) -> dict:
         return {}
     candidates = [m.group(1) for m in re.finditer(r"```(?:json)?\s*(.*?)```", text, re.S)]
     candidates.append(text)
-    dec = json.JSONDecoder()
+    def _reject_constant(s: str) -> None:
+        raise ValueError(f"non-finite constant {s!r} not allowed")
+
+    dec = json.JSONDecoder(parse_constant=_reject_constant)
     for cand in candidates:
         start = cand.find("{")
         while start != -1:
@@ -384,9 +387,11 @@ def shadow_vector(obs: dict) -> dict:
     try:
         dx = float(tip[0]) - float(base[0])
         dy = float(tip[1]) - float(base[1])
-    except (TypeError, IndexError, KeyError):
+    except (TypeError, IndexError, KeyError, ValueError):
         return vec
     length = math.hypot(dx, dy)
+    if not math.isfinite(length):
+        return vec
     vec.update(
         dx=dx,
         dy=dy,

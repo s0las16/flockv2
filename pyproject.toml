@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sundial-verify"
+version = "0.1.0"
+description = "Video provenance verification agent"
+requires-python = ">=3.10"
+dependencies = [
+    "pysolar>=0.10",
+    "ultralytics>=8.3.0",
+    "openai>=1.40.0",
+    "requests>=2.31.0",
+    "Pillow>=10.0.0",
+    "weave>=0.51.0",
+]
+
+[project.optional-dependencies]
+cv = ["opencv-python"]
+ocr = ["pytesseract"]
+io = ["imageio", "imageio-ffmpeg"]
+
+[project.scripts]
+sundial = "sundial.cli:main"
+
+[tool.setuptools]
+packages = ["sundial"]

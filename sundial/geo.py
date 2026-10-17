@@ -21,6 +21,10 @@ _MIN_INTERVAL_S = 1.05  # Nominatim policy: <= 1 request/second
 _last_call = [0.0]
 
 
+class _SkipGeocode(Exception):
+    """Internal: claim already parsed as coordinates — skip Nominatim."""
+
+
 # --- small honest country-knowledge lookups (deliberately not exhaustive) ---
 
 # Countries that keep left.
@@ -255,8 +259,23 @@ def geo_evidence(
 
     claim_cands: list[GeoCandidate] = []
     if claimed_place and claimed_place.strip():
+        raw = claimed_place.strip()
         try:
-            claim_cands = geocode(claimed_place.strip())
+            # "lat,lon" claims anchor directly — no geocode needed.
+            a, b = [float(x) for x in raw.split(",")[:2]]
+            if -90 <= a <= 90 and -180 <= b <= 180:
+                claim_cands = [GeoCandidate(
+                    name=raw, lat=a, lon=b, country_code="",
+                    display_name=f"claimed coordinates {raw}", score=1.0)]
+                raise _SkipGeocode()
+            claim_cands = geocode(raw)
+        except _SkipGeocode:
+            pass
+        except (ValueError, TypeError, IndexError):
+            try:
+                claim_cands = geocode(raw)
+            except RuntimeError as e:
+                data["claim_geocode_error"] = str(e)
         except RuntimeError as e:
             data["claim_geocode_error"] = str(e)
     data["claim_candidates"] = [asdict(c) for c in claim_cands]
@@ -285,14 +304,17 @@ def geo_evidence(
         id(c): _haversine_km(anchor.lat, anchor.lon, c.lat, c.lon)
         for c in text_cands[:5]
     }
-    near = [
+    # Very close beats country-code matching: a sign 5 km away across a
+    # border (Strasbourg/Kehl) still supports the claim.
+    very_near = [c for c in text_cands[:5] if dists[id(c)] <= 25.0]
+    near = very_near or [
         c
         for c in text_cands[:5]
-        if c.country_code == claim_cc and dists[id(c)] <= 150.0
+        if c.country_code == claim_cc and dists[id(c)] <= 60.0
     ]
 
     if near:
-        hit = near[0]
+        hit = min(near, key=lambda c: dists[id(c)])
         data["match"] = {**asdict(hit), "distance_km": round(dists[id(hit)], 1)}
         conf = min(0.65 + 0.05 * (len(near) - 1), 0.85)
         return Evidence(

@@ -141,7 +141,9 @@ def _assess(observed: dict, recorded: dict) -> tuple[list[str], list[str], list[
 
     if obs_precip and r_precip is not None:
         if obs_precip == "none":
-            if r_precip > 0.2:
+            if r_precip >= 1.0:
+                # A grid-cell archive reading needs real volume to outweigh a
+                # visibly dry clip — drizzle at 0.3mm is too thin to contradict.
                 if wet is False:
                     contra.append(
                         f"archive records {r_precip}mm precipitation but the "
@@ -152,6 +154,11 @@ def _assess(observed: dict, recorded: dict) -> tuple[list[str], list[str], list[
                         f"archive records {r_precip}mm precipitation; clip "
                         f"shows no rainfall but wet ground is ambiguous"
                     )
+            elif r_precip > 0.2:
+                notes.append(
+                    f"archive records {r_precip}mm precipitation; below the "
+                    f"threshold to weigh against a dry-looking clip"
+                )
             else:
                 agree.append(
                     f"recorded precipitation {r_precip}mm matches a dry-looking clip"
@@ -237,12 +244,23 @@ def compare_weather(
     lat: float,
     lon: float,
     claimed_dt_iso: str,
+    archive: dict | None = None,
 ) -> Evidence:
-    """Build a weather Evidence card: clip observations vs archive records."""
+    """Build a weather Evidence card: clip observations vs archive records.
+
+    `archive` is a pre-fetched historical_weather() response — pass it to
+    avoid a second HTTP call when the caller already has the day's archive.
+    """
     obs = dict(observed or {})
     base = {"lat": lat, "lon": lon, "claimed_dt": claimed_dt_iso, "observed": obs}
     try:
-        recorded = weather_at(lat, lon, claimed_dt_iso)
+        if archive is not None:
+            recorded = dict(conditions_at(archive, claimed_dt_iso))
+            recorded["time"] = str(claimed_dt_iso)[:13]
+            recorded["conditions"] = describe_code(recorded.get("weathercode"))
+            base["archive"] = archive
+        else:
+            recorded = weather_at(lat, lon, claimed_dt_iso)
     except RuntimeError as e:
         return Evidence(
             type="weather",
@@ -269,7 +287,9 @@ def compare_weather(
             data=data,
         )
     if contra:
-        conf = min(0.55 + 0.15 * len(contra), 0.9)
+        # One archive-vs-clip contradiction stays under the high-confidence
+        # adjudicator threshold — reanalysis data is corroboration, not proof.
+        conf = min(0.4 + 0.15 * len(contra), 0.9)
         return Evidence(
             type="weather",
             summary=f"recorded weather contradicts clip: {'; '.join(contra)}",

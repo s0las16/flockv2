@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 
@@ -29,7 +30,11 @@ def _demo_pack():
                 "claimed 14:00 UTC expects 27.4° elev / 224° az — mismatch",
         verdict=ClaimVerdict.CONTRADICTS,
         confidence=0.82,
-        data={"windows_utc": [{"start": "2025-10-15T08:12", "end": "2025-10-15T08:52"}]},
+        data={
+            "expected": {"elevation_deg": 27.4, "azimuth_deg": 224.0},
+            "observed": {"elevation_deg": 41.0, "azimuth_deg": 104.0},
+            "windows_utc": [{"start": "2025-10-15T08:12", "end": "2025-10-15T08:52"}],
+        },
     ))
     pack.add(Evidence(
         type="weather",
@@ -65,14 +70,44 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="verdict.html", help="HTML report output path")
     ap.add_argument("--frames-dir", default=".sundial_frames")
     ap.add_argument("--no-vlm", action="store_true", help="skip Cosmos VLM calls")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="bypass the VLM response cache")
     ap.add_argument("--demo", action="store_true", help="run fabricated evidence pack")
+    ap.add_argument("--serve", type=int, metavar="PORT",
+                    help="start the upload web UI on PORT instead of verifying a clip")
+    ap.add_argument("--batch", nargs="+", metavar="CLIP",
+                    help="verify several clips; writes a leaderboard index.html in --frames-dir")
     args = ap.parse_args(argv)
+
+    if args.no_cache:
+        os.environ["SUNDIAL_NO_CACHE"] = "1"
+
+    if args.serve:
+        from .serve import serve
+        print(f"sundial listening on http://localhost:{args.serve} — upload a clip to verify")
+        serve(port=args.serve)
+        return 0
+
+    if args.batch:
+        from .batch import run_batch, write_index
+        rows = run_batch(args.batch, claim_time=args.claim_time,
+                         claim_place=args.claim_place,
+                         workdir=args.frames_dir + "_batch")
+        index = write_index(rows, os.path.join(args.frames_dir + "_batch", "index.html"))
+        print(f"batch done — leaderboard at {index}")
+        return 0
 
     from .adjudicate import adjudicate
     from .report import render_html
 
     if args.demo:
-        adj = adjudicate(_demo_pack())
+        pack = _demo_pack()
+        try:
+            from . import provenance
+            pack.evidence = provenance.tag(pack.evidence)
+        except Exception:
+            pass
+        adj = adjudicate(pack)
     else:
         if not args.video:
             ap.error("--video is required unless --demo")
@@ -86,6 +121,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     path = render_html(adj, args.out)
+    # JSON sidecar next to the report — the same data a UI would consume.
+    json_path = os.path.splitext(args.out)[0] + ".json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(adj.to_dict(), f, indent=2, default=str)
     print(json.dumps({
         "verdict": adj.verdict.value,
         "confidence": adj.confidence,

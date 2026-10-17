@@ -37,7 +37,9 @@ class Claim:
 class Evidence:
     """One piece of forensic evidence produced by a stage."""
 
-    type: str  # "solar" | "weather" | "geo" | "texture" | "shadows"
+    type: str  # "solar" | "weather" | "geo" | "texture" | "shadows" | "clock"
+               # | "scene" | "language" | "plate_style" | "lunar" | "audio"
+               # | "azimuth" | stage-note names like "vlm" / "geo-resolve"
     summary: str  # one-sentence human-readable finding
     verdict: ClaimVerdict
     confidence: float = 0.0  # 0..1

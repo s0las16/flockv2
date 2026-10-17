@@ -119,10 +119,13 @@ def test_solar_evidence_nighttime_claim_contradicts():
 
 
 def test_solar_evidence_twilight_edge_inconclusive():
-    # Claim sits in civil twilight (-6..0 deg): shadows can persist just
-    # after sunset, so we can't call it either way.
-    ev = solar_evidence(LAT, LON, "2025-06-15T20:45:00+00:00", 35.0)
+    # Claim sits in civil twilight (-6..0 deg): lingering low shadows can
+    # persist just after sunset, so a small measured elevation stays
+    # inconclusive. A *high* measured sun, though, can't be twilight.
+    ev = solar_evidence(LAT, LON, "2025-06-15T20:45:00+00:00", 2.0)
     assert ev.verdict == ClaimVerdict.INCONCLUSIVE, ev.summary
+    ev = solar_evidence(LAT, LON, "2025-06-15T20:45:00+00:00", 35.0)
+    assert ev.verdict == ClaimVerdict.CONTRADICTS, ev.summary
 
 
 def test_solar_evidence_impossible_elevation_inconclusive():

@@ -36,7 +36,7 @@ billboards, transit signs. Also assess the driving environment.
 
 Return STRICT JSON with this exact schema — no prose, no markdown fences:
 
-{"texts": ["<verbatim string>", ...], "overlay_timestamps": ["<verbatim burned-in date/time text>", ...], "driving_side": "left"|"right"|"unknown", "sign_language": "<primary signage language or 'unknown'>", "road_markings": ["<short description>", ...]}
+{"texts": ["<verbatim string>", ...], "overlay_timestamps": ["<verbatim burned-in date/time text>", ...], "driving_side": "left"|"right"|"unknown", "sign_language": "<two-letter ISO 639-1 code, e.g. en|de|fr|ja, or 'unknown'>", "plate_style": "<dominant licence-plate style: eu|uk|us|other|unknown>", "road_markings": ["<short description>", ...]}
 
 - "overlay_timestamps": any date/time burned into the image by the camera
   (corners/edges, e.g. "17.10.2026 08:00:02", "10/17 08:00"). Verbatim —
@@ -46,9 +46,13 @@ Return STRICT JSON with this exact schema — no prose, no markdown fences:
   image, transcribed verbatim. Do NOT infer, translate, or guess place names.
   If a sign is blurry, angled, or too small to read with certainty, omit it.
   An empty list is a perfectly good answer — never invent text.
-- "driving_side": infer from lane position, markings and vehicle orientation;
-  use "unknown" if there is no road or it is ambiguous.
-- "road_markings": e.g. "zebra crossing", "double yellow line", "bike lane",
+- "driving_side": only "left"/"right" when visible evidence exists (lane
+  arrows, markings, parked-car orientation); otherwise "unknown".
+- "sign_language": ISO 639-1 code of the dominant signage language (en, de,
+  fr, ja, ...), judged from readable sign text only; "unknown" if none.
+- "plate_style": from any visible vehicle plate — "eu" (blue strip), "uk"
+  (white front/yellow rear), "us", "other", or "unknown" if unreadable.
+- "road_markings": e.g. "zebra crossing", "double yellow lines", "bike lane",
   "stop line" — include colours where visible.
 
 Respond with JSON only."""

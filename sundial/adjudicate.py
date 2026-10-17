@@ -29,8 +29,13 @@ SYSTEM_PROMPT = (
     '{"verdict": "SUPPORTED"|"CONTRADICTED"|"INSUFFICIENT", '
     '"confidence": <float 0-1>, '
     '"narrative": "<2-4 sentence explanation citing evidence types>"}\n'
-    "Use CONTRADICTED only when evidence clearly refutes the claim; use "
-    "INSUFFICIENT when evidence is missing, inconclusive, or mixed."
+    "Trust hierarchy: 'clock' (burned-in camera timestamp) and 'solar' "
+    "(physics-derived sun position) are direct physical checks — weigh them "
+    "heavily. 'geo' and 'weather' corroborate but can mislead (hallucinated "
+    "sign text, region-wide weather); never let them contradict alone unless "
+    "confidence is high. 'texture' and 'shadows' describe what was seen, not "
+    "the claim. Use CONTRADICTED only when evidence clearly refutes the "
+    "claim; use INSUFFICIENT when evidence is missing, inconclusive, or mixed."
 )
 
 
@@ -118,6 +123,7 @@ def _pack_payload(pack: EvidencePack) -> dict:
 # Robust JSON extraction — first balanced {...} block wins
 # --------------------------------------------------------------------------- #
 def _first_json_object(text: str) -> dict:
+    first: dict | None = None
     for m in re.finditer(r"\{", text):
         start = m.start()
         depth = 0
@@ -143,18 +149,31 @@ def _first_json_object(text: str) -> dict:
                         try:
                             obj = json.loads(text[start : i + 1])
                             if isinstance(obj, dict):
-                                return obj
+                                # prefer an object that actually carries a
+                                # verdict key over arbitrary preamble dicts
+                                if "verdict" in obj:
+                                    return obj
+                                if first is None:
+                                    first = obj
                         except json.JSONDecodeError:
                             pass
                         break
+    if first is not None:
+        return first
     raise ValueError("no JSON object found in LLM output")
 
 
 def _norm_verdict(value: Any) -> Verdict:
-    s = str(value or "").upper()
-    if "CONTRADICT" in s:
+    s = str(value or "").strip().upper()
+    if s in {v.value for v in Verdict}:
+        return Verdict(s)
+    # "NOT SUPPORTED" must never flip to SUPPORTED — check negation words
+    # before the fuzzy fallbacks.
+    if re.search(r"\b(NOT|UN|NO)\b.*\bSUPPORT|\bUNSUPPORTED", s):
+        return Verdict.INSUFFICIENT
+    if re.search(r"\bCONTRADICT", s):
         return Verdict.CONTRADICTED
-    if "SUPPORT" in s:
+    if re.search(r"\bSUPPORT", s):
         return Verdict.SUPPORTED
     return Verdict.INSUFFICIENT
 
@@ -171,9 +190,16 @@ def _clamp_conf(value: Any, default: float = 0.5) -> float:
 # --------------------------------------------------------------------------- #
 def _fallback(pack: EvidencePack, note: Optional[str] = None) -> Adjudication:
     ev = list(pack.evidence)
-    contra = [e for e in ev if e.verdict == ClaimVerdict.CONTRADICTS]
-    supp = [e for e in ev if e.verdict == ClaimVerdict.SUPPORTS]
-    high_contra = [e for e in contra if e.confidence >= _HIGH_CONF]
+
+    def _cv_of(e) -> ClaimVerdict:
+        try:
+            return e.verdict if isinstance(e.verdict, ClaimVerdict) else ClaimVerdict(str(e.verdict).lower())
+        except ValueError:
+            return ClaimVerdict.INCONCLUSIVE
+
+    contra = [e for e in ev if _cv_of(e) == ClaimVerdict.CONTRADICTS]
+    supp = [e for e in ev if _cv_of(e) == ClaimVerdict.SUPPORTS]
+    high_contra = [e for e in contra if (e.confidence or 0) >= _HIGH_CONF]
 
     if high_contra:
         verdict = Verdict.CONTRADICTED

@@ -17,8 +17,11 @@ SCAN_STEP = timedelta(minutes=2)
 
 
 def _aware(when: datetime) -> datetime:
-    # Sundial works in UTC end to end; naive datetimes are read as UTC
-    return when if when.tzinfo is not None else when.replace(tzinfo=timezone.utc)
+    # Sundial works in UTC end to end; naive datetimes are read as UTC.
+    # Aware datetimes are normalized to UTC (a "+09:00" claim must not scan
+    # the wrong UTC date in solar_evidence).
+    return (when.astimezone(timezone.utc) if when.tzinfo is not None
+            else when.replace(tzinfo=timezone.utc))
 
 
 def azimuth_error(a: float, b: float) -> float:
@@ -107,8 +110,10 @@ def solar_evidence(
     elevation_tol_deg: float = 3.0,
     azimuth_tol_deg: float = 8.0,
 ) -> Evidence:
-    claimed = _aware(datetime.fromisoformat(claim_time_iso))
+    claimed = _aware(datetime.fromisoformat(str(claim_time_iso).replace("Z", "+00:00")))
     expected = sun_position(lat, lon, claimed)
+    elevation_tol_deg = max(float(elevation_tol_deg), 0.5)
+    azimuth_tol_deg = max(float(azimuth_tol_deg), 0.5)
 
     obs_txt = f"{observed_elevation_deg:.1f}° elev"
     exp_txt = f"{expected['elevation_deg']:.1f}° elev"
@@ -127,7 +132,7 @@ def solar_evidence(
         "azimuth_convention": "0..360 deg clockwise from true north (pysolar)",
     }
 
-    if expected["elevation_deg"] < -6:
+    if expected["elevation_deg"] < -6 and observed_elevation_deg > 0:
         # Claim puts the sun well below the horizon (past civil twilight),
         # but we measured a real cast shadow — only possible in daylight.
         below = -expected["elevation_deg"]
@@ -142,7 +147,18 @@ def solar_evidence(
         )
     if expected["elevation_deg"] < 0:
         # Twilight edge: shadows can persist just after sunset — can't
-        # cleanly call it either way.
+        # cleanly call it either way. But a *high* measured sun can't be
+        # twilight at all — that still contradicts.
+        if observed_elevation_deg > 2 * elevation_tol_deg + 6:
+            return Evidence(
+                type="solar",
+                summary=(f"clip shows the sun ≈{observed_elevation_deg:.0f}° up but "
+                         f"claimed {claimed:%H:%M} UTC is twilight "
+                         f"(sun {expected['elevation_deg']:.1f}°)"),
+                verdict=ClaimVerdict.CONTRADICTS,
+                confidence=0.75,
+                data={**data, "windows_utc": []},
+            )
         return Evidence(
             type="solar",
             summary=(f"claimed {claimed:%H:%M} UTC is twilight "
@@ -185,8 +201,11 @@ def solar_evidence(
         return Evidence(type="solar", summary=f"{base} — consistent",
                         verdict=ClaimVerdict.SUPPORTS,
                         confidence=round(0.6 + 0.35 * max(margin, 0.0), 2), data=data)
-    # contradiction confidence grows as the miss exceeds tolerance
+    # contradiction confidence grows as the miss exceeds tolerance — a
+    # matched elevation with a 180° azimuth error is still a hard miss.
+    miss = max(e_err / elevation_tol_deg,
+               (a_err or 0.0) / azimuth_tol_deg)
     return Evidence(type="solar", summary=f"{base} — mismatch",
                     verdict=ClaimVerdict.CONTRADICTS,
-                    confidence=round(min(0.95, 0.5 + e_err / (4 * elevation_tol_deg)), 2),
+                    confidence=round(min(0.95, 0.5 + miss * 0.2), 2),
                     data=data)

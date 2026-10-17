@@ -33,13 +33,14 @@ import base64
 import io
 import math
 
-TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
-SUBDOMAINS = "abcd"
+TILE_URL = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+            "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}")
+SUBDOMAINS = ""  # Esri has no subdomains; param kept for call-shape compat
 USER_AGENT = "sundial-hackathon/0.1"
 HTTP_TIMEOUT_S = 8
 TILE_PX = 256
 GRID = 3            # 3x3 tiles centered on the anchor tile -> <=9 requests
-MAX_ZOOM = 19
+MAX_ZOOM = 16
 _MAX_MERC_LAT = 85.05112878  # web-mercator clip latitude
 
 _BG = (7, 11, 20)           # report.py's #070b14 — gaps, letterboxing
@@ -47,7 +48,7 @@ _CLAIM = "#ffffff"
 _PRED = "#facc15"           # report accent
 _GEO = "#38bdf8"
 _WIKI = "#94a3b8"
-_CAPTION = "© OSM © CARTO"
+_CAPTION = "Esri © OSM contributors"
 _CAPTION_BG = (7, 11, 20, 200)
 _CAPTION_FG = (148, 163, 184, 230)
 
@@ -122,7 +123,7 @@ def _deg2tile(lat: float, lon: float, z: int) -> tuple[float, float]:
 
 def _fetch_tile(z: int, x: int, y: int, s: str) -> bytes | None:
     """One tile's PNG bytes, or None. requests if importable, else urllib."""
-    url = TILE_URL.format(s=s, z=z, x=x, y=y)
+    url = TILE_URL.format(z=z, x=x, y=y)
     try:
         import requests
     except ImportError:
@@ -234,9 +235,7 @@ def static_map_b64(anchor: tuple | None, markers: list = None,
                 x, y = cx - 1 + dx, cy - 1 + dy
                 if y < 0 or y >= n:
                     continue
-                blob = _fetch_tile(z, x % n, y,
-                                   SUBDOMAINS[(dx + dy * GRID)
-                                              % len(SUBDOMAINS)])
+                blob = _fetch_tile(z, x % n, y, "")
                 if not blob:
                     continue
                 try:

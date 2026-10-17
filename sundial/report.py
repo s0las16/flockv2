@@ -283,7 +283,8 @@ def _ranked_rows(ranked: Any) -> list[tuple[str, "float | None"]]:
 def _loc_rail(extra: "dict | None", mix_html: str) -> str:
     """The right-hand "where it thinks it is" rail.
 
-    `extra` is an optional bag handed in by the caller: map_fragment
+    `extra` is an optional bag handed in by the caller: map_svg (trusted
+    inline <svg> from sundial.vec_map — inserted verbatim), map_fragment
     (trusted HTML from sundial.map_viz — inserted verbatim), map_static
     (base64 PNG), loc_summary ({best_name, ranked}), and chain_html
     (trusted reasoning-chain fragment). Everything degrades silently: a
@@ -292,20 +293,25 @@ def _loc_rail(extra: "dict | None", mix_html: str) -> str:
     rail bottom.
     """
     ex = extra if isinstance(extra, dict) else {}
+    svg_map = ex.get("map_svg")
     frag = ex.get("map_fragment")
     static = ex.get("map_static")
     loc = ex.get("loc_summary")
     loc = loc if isinstance(loc, dict) else {}
     chain = ex.get("chain_html")
     has_geo = any((
+        isinstance(svg_map, str) and svg_map.strip(),
         isinstance(frag, str) and frag.strip(),
         isinstance(static, str) and static.strip(),
         bool(loc),
         isinstance(chain, str) and chain.strip(),
     ))
 
-    # 1. map — fragment verbatim > static PNG > placeholder; never fatal
-    if isinstance(frag, str) and frag.strip():
+    # 1. map — local inline svg > fragment verbatim > static PNG >
+    #    placeholder; never fatal
+    if isinstance(svg_map, str) and svg_map.strip():
+        map_block = f'<div class="mapbox">{svg_map}</div>'
+    elif isinstance(frag, str) and frag.strip():
         map_block = f'<div class="mapbox">{frag}</div>'
     elif isinstance(static, str) and static.strip():
         src = static.strip()
@@ -362,10 +368,11 @@ def render_html(adj: Adjudication, out_path: str,
                 extra: "dict | None" = None) -> str:
     """Write a self-contained animated verdict report; returns out_path.
 
-    `extra` optionally carries the geo rail payloads — {"map_fragment",
-    "map_static", "loc_summary", "chain_html"} — produced by sibling
-    tooling (e.g. sundial.map_viz). All keys are optional; with none of
-    them the rail renders a graceful "no geo read" empty state.
+    `extra` optionally carries the geo rail payloads — {"map_svg",
+    "map_fragment", "map_static", "loc_summary", "chain_html"} —
+    produced by sibling tooling (e.g. sundial.vec_map, sundial.map_viz).
+    All keys are optional; with none of them the rail renders a
+    graceful "no geo read" empty state.
     """
     pack = adj.pack
     claim = pack.claim
@@ -489,6 +496,7 @@ body {{ font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, 
           background:#08080a; }}
 .mapimg, .mapbox img {{ display:block; width:100%; height:auto; }}
 .mapbox iframe {{ display:block; width:100%; border:0; }}
+.mapbox svg {{ display:block; width:100%; height:auto; border-radius:10px; }}
 .mapnone {{ display:flex; align-items:center; justify-content:center;
            min-height:150px; color:#444; font-size:11px;
            letter-spacing:.18em; text-transform:uppercase;

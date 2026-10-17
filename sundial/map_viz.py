@@ -1,7 +1,7 @@
 """Self-contained interactive mini-map fragment for the verdict report.
 
-Tesla-style dark slippy map in vanilla JS — CARTO ``dark_all`` raster
-tiles (no API key, no Leaflet, no CDN script), pointer-drag panning,
+Tesla-style dark slippy map in vanilla JS — Esri ``World_Dark_Gray_Base``
+raster tiles (no API key, no Leaflet, no CDN script), pointer-drag panning,
 wheel/double-click zoom, and markers + lat/lon bands projected through
 Web-Mercator onto absolutely-positioned tile <img>s in a clipped div.
 
@@ -20,10 +20,11 @@ import math
 import re
 from typing import Any
 
-_TILE = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"  # s in a-d
-_ATTR = "© OpenStreetMap contributors © CARTO"
+_TILE = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+         "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}")  # Esri z/y/x
+_ATTR = "Esri, HERE, Garmin, © OpenStreetMap contributors"
 _LATLIM = 85.0511  # Web-Mercator latitude cutoff
-_Z_MIN, _Z_MAX = 1, 19  # CARTO dark_all serves z0..20; keep a margin
+_Z_MIN, _Z_MAX = 1, 16  # Esri dark-gray: worldwide z0-10, cities to ~16
 _WORLD = (25.0, 0.0, 2)  # anchor=None -> whole-world view
 _KINDS = ("claim", "pred", "geo", "wiki")
 _MAX_MARKERS, _MAX_BANDS, _MAX_LABEL = 64, 32, 80
@@ -69,7 +70,7 @@ _JS = """\
       fb = root.querySelector(".smap-fb");
   if (fb) fb.parentNode.removeChild(fb);
   var CFG = __CFG__, MK = __MK__, BD = __BD__;
-  var TS = 256, SUB = "abcd", MINZ = 1, MAXZ = 19,
+  var TS = 256, MINZ = 1, MAXZ = 16,
       Z = Math.max(MINZ, Math.min(MAXZ, CFG.z | 0)),
       ox = 0, oy = 0, vw = 0, vh = 0,
       fails = 0, off = false, cov = null, init = false, drag = null;
@@ -104,9 +105,9 @@ _JS = """\
     for (var ty = y0; ty <= y1; ty++)
       for (var tx = x0; tx <= x1; tx++)
         h += '<img class="smap-i" draggable="false" style="left:' + tx * TS +
-             'px;top:' + ty * TS + 'px" src="https://' + SUB[(tx + ty) % 4 & 3] +
-             '.basemaps.cartocdn.com/dark_all/' + Z + '/' +
-             ((tx % n) + n) % n + '/' + ty + '.png">';
+             'px;top:' + ty * TS + 'px" src="https://server.arcgisonline.com' +
+             '/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer' +
+             '/tile/' + Z + '/' + ty + '/' + ((tx % n) + n) % n + '">';
     tiler.innerHTML = h;
     cov = {x0: x0, x1: x1, y0: y0, y1: y1};
     for (var i = 0; i < tiler.children.length; i++)
@@ -402,8 +403,8 @@ if __name__ == "__main__":
     )
     world = map_fragment(None, [], [])
 
-    assert "basemaps.cartocdn.com/dark_all" in frag, "carto tile URL"
-    assert "\u00a9 OpenStreetMap contributors \u00a9 CARTO" in frag, "attribution"
+    assert "arcgisonline.com" in frag and "World_Dark_Gray_Base" in frag, "esri tile URL"
+    assert "\u00a9 OpenStreetMap contributors" in frag, "attribution"
     assert '"a": 48.8566' in frag, "marker JSON embedded"
     assert "\\u003c" in frag, "label < > escaped inside JSON"
     assert '"n": 48.92' in frag, "band JSON embedded"

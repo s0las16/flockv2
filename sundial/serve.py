@@ -459,18 +459,40 @@ def _report_extra(adj) -> dict:
             radius = (summ.get("predicted") or {}).get("radius_km")
             zoom = 12 if summ.get("anchor") else max(
                 2, min(10, round(8 - math.log2(max(radius or 300, 50) / 300))))
-            try:  # interactive slippy map first
-                from . import map_viz
+            # Local vector map is the primary payload. The module is being
+            # written concurrently, so accept either convenience API:
+            # vec_fragment(summ) or fragment_for(adj).
+            try:
+                from . import vec_map
 
-                frag = map_viz.map_fragment(
-                    center, markers=summ.get("markers") or [],
-                    bands=summ.get("bands") or [], zoom=zoom)
+                frag = ""
+                for name, arg in (("vec_fragment", summ),
+                                  ("fragment_for", adj)):
+                    func = getattr(vec_map, name, None)
+                    if callable(func):
+                        try:
+                            frag = func(arg) or ""
+                        except Exception:
+                            frag = ""
+                    if frag:
+                        break
                 if frag:
-                    extra["map_fragment"] = frag
+                    extra["map_svg"] = frag
             except Exception:
                 pass
-            if "map_fragment" not in extra:
-                try:  # static PNG fallback (needs PIL + tile network)
+            if "map_svg" not in extra:
+                try:  # interactive slippy map second
+                    from . import map_viz
+
+                    frag = map_viz.map_fragment(
+                        center, markers=summ.get("markers") or [],
+                        bands=summ.get("bands") or [], zoom=zoom)
+                    if frag:
+                        extra["map_fragment"] = frag
+                except Exception:
+                    pass
+            if "map_svg" not in extra and "map_fragment" not in extra:
+                try:  # static PNG last resort (needs PIL + tile network)
                     from . import map_tiles
 
                     img = map_tiles.static_map_b64(
@@ -603,9 +625,9 @@ class _Handler(BaseHTTPRequestHandler):
             except OSError:
                 self._send(404, b"", "application/javascript")
         elif path.startswith("/status/"):
-            self._status(path[len("/status/"):])
+            self._status(path[len("/status/"):].rstrip("/"))
         elif path.startswith("/result/"):
-            self._result(path[len("/result/"):])
+            self._result(path[len("/result/"):].rstrip("/"))
         else:
             self._send(404, _page(
                 "not found",

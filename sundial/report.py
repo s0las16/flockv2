@@ -143,8 +143,8 @@ def _sun_viz(ev: "Evidence") -> str:
         )
     else:
         parts.append(
-            f'<circle cx="{ex:.0f}" cy="{ey:.0f}" r="7" fill="none" stroke="#94a3b8" stroke-width="1.6"/>'
-            f'<line x1="{ex:.0f}" y1="{ey:.0f}" x2="{ex:.0f}" y2="{horizon_y}" stroke="#94a3b8" stroke-dasharray="2 4" stroke-width="1"/>'
+            f'<circle cx="{ex:.0f}" cy="{ey:.0f}" r="7" fill="none" stroke="#9a9a9a" stroke-width="1.6"/>'
+            f'<line x1="{ex:.0f}" y1="{ey:.0f}" x2="{ex:.0f}" y2="{horizon_y}" stroke="#9a9a9a" stroke-dasharray="2 4" stroke-width="1"/>'
             + label(ex, f"claimed: {e_el:.0f}°", ey + 4)
         )
     parts.append(
@@ -246,8 +246,127 @@ def _ev_card(ev: "Evidence", idx: int) -> str:
     )
 
 
-def render_html(adj: Adjudication, out_path: str) -> str:
-    """Write a self-contained animated verdict card; returns out_path."""
+def _ranked_rows(ranked: Any) -> list[tuple[str, "float | None"]]:
+    """Normalize a ranked-location list into [(label, score|None)].
+
+    Tolerates {cc: score} mappings, dicts keyed cc|code|country|name|label
+    with score|confidence|weight, (label, score) tuples, and bare strings.
+    Never raises — the rail is a nice-to-have, not a fatal path.
+    """
+    if isinstance(ranked, dict):
+        ranked = [{"cc": k, "score": v} for k, v in ranked.items()]
+    if not isinstance(ranked, (list, tuple)):
+        return []
+    rows: list[tuple[str, "float | None"]] = []
+    for r in ranked:
+        name: Any = None
+        score: Any = None
+        if isinstance(r, dict):
+            name = (r.get("cc") or r.get("code") or r.get("country_code")
+                    or r.get("name") or r.get("country") or r.get("label"))
+            score = r.get("score", r.get("confidence", r.get("weight")))
+        elif isinstance(r, (list, tuple)) and r:
+            name = r[0]
+            score = r[1] if len(r) > 1 else None
+        elif isinstance(r, str):
+            name = r
+        if name is None or str(name).strip() == "":
+            continue
+        try:
+            score_f: "float | None" = float(score)
+        except (TypeError, ValueError):
+            score_f = None
+        rows.append((str(name), score_f))
+    return rows
+
+
+def _loc_rail(extra: "dict | None", mix_html: str) -> str:
+    """The right-hand "where it thinks it is" rail.
+
+    `extra` is an optional bag handed in by the caller: map_fragment
+    (trusted HTML from sundial.map_viz — inserted verbatim), map_static
+    (base64 PNG), loc_summary ({best_name, ranked}), and chain_html
+    (trusted reasoning-chain fragment). Everything degrades silently: a
+    missing map renders a placeholder, and no geo data at all renders a
+    graceful "no geo read" empty state. mix_html (signal mix) anchors the
+    rail bottom.
+    """
+    ex = extra if isinstance(extra, dict) else {}
+    frag = ex.get("map_fragment")
+    static = ex.get("map_static")
+    loc = ex.get("loc_summary")
+    loc = loc if isinstance(loc, dict) else {}
+    chain = ex.get("chain_html")
+    has_geo = any((
+        isinstance(frag, str) and frag.strip(),
+        isinstance(static, str) and static.strip(),
+        bool(loc),
+        isinstance(chain, str) and chain.strip(),
+    ))
+
+    # 1. map — fragment verbatim > static PNG > placeholder; never fatal
+    if isinstance(frag, str) and frag.strip():
+        map_block = f'<div class="mapbox">{frag}</div>'
+    elif isinstance(static, str) and static.strip():
+        src = static.strip()
+        if not src.startswith("data:"):
+            src = "data:image/png;base64," + src
+        map_block = ('<div class="mapbox"><img class="mapimg" '
+                     f'src="{_e(src)}" alt="estimated location map"></div>')
+    else:
+        map_block = '<div class="mapnone">map unavailable</div>'
+
+    # 2. location readout — best guess big, then ranked confidence bars
+    loc_block = ""
+    if loc:
+        best = loc.get("best_name") or loc.get("best") or loc.get("name")
+        if isinstance(best, dict):
+            best = best.get("name") or best.get("cc") or best.get("code")
+        rows = _ranked_rows(loc.get("ranked"))[:6]
+        bits = []
+        if best:
+            bits.append(f'<div class="locbest">{_e(best)}</div>')
+        if rows:
+            lis = []
+            for name, sc in rows:
+                w = 0.0 if sc is None else min(100.0, max(0.0, sc * 100))
+                num = "" if sc is None else f'<span class="locscore">{sc:.2f}</span>'
+                lis.append(
+                    f'<div class="locrow"><span class="loccc">{_e(name)}</span>'
+                    f'<span class="locbar"><span class="locfill" '
+                    f'style="width:{w:.0f}%"></span></span>{num}</div>')
+            bits.append('<div class="loclist">' + "".join(lis) + "</div>")
+        if bits:
+            loc_block = '<div class="locread">' + "".join(bits) + "</div>"
+
+    # 3. reasoning chain fragment, if the caller produced one
+    chain_block = ""
+    if isinstance(chain, str) and chain.strip():
+        chain_block = ('<div class="chainbox"><div class="railsub">'
+                       'reasoning chain</div>' + chain + "</div>")
+
+    if has_geo:
+        inner = map_block + loc_block + chain_block
+    else:
+        inner = ('<div class="nogeo"><span class="nogeoicon">' + _ICONS["geo"]
+                 + '</span>no geo read'
+                 '<span class="nogeosub">add a place claim</span></div>')
+
+    foot = f'<div class="railfoot">{mix_html}</div>' if mix_html else ""
+    return ('<aside class="rail"><div class="railpanel">'
+            '<div class="railtitle">Where it thinks it is</div>'
+            + inner + foot + "</div></aside>")
+
+
+def render_html(adj: Adjudication, out_path: str,
+                extra: "dict | None" = None) -> str:
+    """Write a self-contained animated verdict report; returns out_path.
+
+    `extra` optionally carries the geo rail payloads — {"map_fragment",
+    "map_static", "loc_summary", "chain_html"} — produced by sibling
+    tooling (e.g. sundial.map_viz). All keys are optional; with none of
+    them the rail renders a graceful "no geo read" empty state.
+    """
     pack = adj.pack
     claim = pack.claim
     if isinstance(adj.verdict, Verdict):
@@ -323,6 +442,8 @@ def render_html(adj: Adjudication, out_path: str) -> str:
 
     raw_json = html.escape(json.dumps(adj.to_dict(), indent=2, default=str))
 
+    rail_html = _loc_rail(extra, mix_html)
+
     doc = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -331,104 +452,159 @@ def render_html(adj: Adjudication, out_path: str) -> str:
 :root {{ --accent:{accent}; }}
 * {{ box-sizing:border-box; }}
 body {{ font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-       background:#070b14; color:#cbd5e1; margin:0; min-height:100vh;
-       background-image:radial-gradient(rgba(148,163,184,.13) 1px, transparent 1px);
+       background:#050507; color:#e5e5e5; margin:0; min-height:100vh;
+       background-image:radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
        background-size:26px 26px; animation:drift 60s linear infinite; }}
 @keyframes drift {{ to {{ background-position:520px 260px; }} }}
-.wrap {{ max-width:820px; margin:0 auto; padding:52px 18px 60px; }}
-.brand {{ font-size:12px; letter-spacing:.35em; color:#64748b; text-transform:uppercase;
-         margin-bottom:26px; display:flex; align-items:center; gap:10px; }}
-.brand::before {{ content:""; width:26px; height:1px; background:#334155; }}
+.wrap {{ max-width:1220px; margin:0 auto; padding:46px 20px 60px; }}
+.brand {{ font-size:12px; letter-spacing:.35em; color:#666; text-transform:uppercase;
+         margin-bottom:24px; display:flex; align-items:center; gap:10px; }}
+.brand::before {{ content:""; width:26px; height:1px; background:#262626; }}
+.layout {{ display:grid; grid-template-columns:minmax(0,62fr) minmax(300px,38fr);
+          gap:22px; align-items:start; }}
 .card {{ position:relative; border-radius:18px; padding:34px 38px;
-        background:rgba(15,23,42,.72); border:1px solid rgba(148,163,184,.14);
+        background:rgba(13,13,16,.82); border:1px solid #1c1c1c;
         backdrop-filter:blur(6px);
-        box-shadow:0 24px 70px rgba(0,0,0,.5), 0 0 0 1px rgba(2,6,23,.6) inset; }}
+        box-shadow:0 24px 70px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.55) inset; }}
 .card::before {{ content:""; position:absolute; inset:-1px; border-radius:19px; padding:1px;
   background:radial-gradient(420px circle at var(--mx,50%) var(--my,-20%),
       {glow}.55), transparent 40%);
   -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }}
+.rail {{ position:sticky; top:24px; }}
+.railpanel {{ position:relative; border-radius:18px; padding:20px 20px 16px;
+             background:rgba(13,13,16,.82); border:1px solid #1c1c1c;
+             overflow:hidden; }}
+.railpanel::after {{ content:""; position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,.05), transparent 60%);
+  opacity:0; transition:opacity .25s; }}
+.railpanel:hover::after {{ opacity:1; }}
+.railtitle {{ font-size:11px; letter-spacing:.28em; color:#666;
+             text-transform:uppercase; margin-bottom:14px; display:flex;
+             align-items:center; gap:10px; }}
+.railtitle::after {{ content:""; flex:1; height:1px; background:#1c1c1c; }}
+.railsub {{ font-size:10px; letter-spacing:.2em; color:#555;
+           text-transform:uppercase; margin-bottom:8px; }}
+.mapbox {{ border:1px solid #1c1c1c; border-radius:12px; overflow:hidden;
+          background:#08080a; }}
+.mapimg, .mapbox img {{ display:block; width:100%; height:auto; }}
+.mapbox iframe {{ display:block; width:100%; border:0; }}
+.mapnone {{ display:flex; align-items:center; justify-content:center;
+           min-height:150px; color:#444; font-size:11px;
+           letter-spacing:.18em; text-transform:uppercase;
+           border:1px dashed #262626; border-radius:12px; }}
+.locread {{ margin-top:16px; }}
+.locbest {{ font-size:22px; font-weight:800; color:#e5e5e5;
+           letter-spacing:.03em; margin-bottom:10px; }}
+.loclist {{ display:flex; flex-direction:column; gap:8px; }}
+.locrow {{ display:flex; align-items:center; gap:10px; font-size:12px; }}
+.loccc {{ color:#e5e5e5; font-weight:700; min-width:3ch; }}
+.locbar {{ flex:1; display:block; height:4px; background:rgba(255,255,255,.08);
+          border-radius:2px; overflow:hidden; }}
+.locfill {{ display:block; height:100%; background:#38bdf8; border-radius:2px; }}
+.locscore {{ color:#999; min-width:4ch; text-align:right;
+            font-variant-numeric:tabular-nums; }}
+.chainbox {{ margin-top:16px; border-top:1px solid #1c1c1c; padding-top:14px;
+            font-size:12px; color:#999; }}
+.railfoot {{ margin-top:16px; border-top:1px solid #1c1c1c; padding-top:12px; }}
+.railfoot .signalmix {{ margin-top:0; }}
+.nogeo {{ display:flex; flex-direction:column; align-items:center; gap:8px;
+         padding:34px 12px; border:1px dashed #262626; border-radius:12px;
+         color:#666; font-size:12px; letter-spacing:.14em;
+         text-transform:uppercase; text-align:center; }}
+.nogeoicon {{ display:flex; }}
+.nogeoicon svg {{ width:26px; height:26px; fill:none; stroke:#444;
+                 stroke-width:1.6; }}
+.nogeosub {{ color:#444; font-size:10px; letter-spacing:.2em; }}
 .verdictrow {{ display:flex; align-items:center; gap:26px; flex-wrap:wrap; }}
 .badge {{ font-size:34px; font-weight:800; letter-spacing:.10em; color:var(--accent);
          text-shadow:0 0 26px {glow}.55); min-width:9ch; }}
 .ring {{ width:86px; height:86px; transform:rotate(-90deg); }}
-.ring .bg {{ stroke:rgba(148,163,184,.15); }}
+.ring .bg {{ stroke:rgba(255,255,255,.10); }}
 .ring .fg {{ stroke:var(--accent); stroke-linecap:round;
            stroke-dasharray:226.2; stroke-dashoffset:226.2;
            transition:stroke-dashoffset 1.1s cubic-bezier(.2,.7,.2,1); }}
 .ringwrap {{ position:relative; width:86px; height:86px; }}
 .ringnum {{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-           font-size:17px; font-weight:700; color:#e2e8f0; transform:none; }}
-.confsub {{ font-size:11px; color:#64748b; letter-spacing:.14em; text-transform:uppercase; }}
-h1 {{ font-size:12px; text-transform:uppercase; letter-spacing:.22em; color:#64748b;
-     margin:32px 0 12px; border-bottom:1px solid rgba(148,163,184,.12); padding-bottom:8px; }}
+           font-size:17px; font-weight:700; color:#e5e5e5; transform:none; }}
+.confsub {{ font-size:11px; color:#666; letter-spacing:.14em; text-transform:uppercase; }}
+h1 {{ font-size:12px; text-transform:uppercase; letter-spacing:.22em; color:#666;
+     margin:32px 0 12px; border-bottom:1px solid #1c1c1c; padding-bottom:8px; }}
 .claim {{ font-size:15px; display:flex; gap:10px; flex-wrap:wrap; align-items:baseline; }}
-.ck {{ color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:.15em; }}
-.cdot {{ color:#334155; }}
-.craw {{ color:#94a3b8; font-size:13px; margin-top:8px; font-style:italic; }}
-.clip {{ color:#475569; font-size:11px; margin-top:10px; word-break:break-all; }}
+.ck {{ color:#666; font-size:11px; text-transform:uppercase; letter-spacing:.15em; }}
+.cdot {{ color:#333; }}
+.craw {{ color:#999; font-size:13px; margin-top:8px; font-style:italic; }}
+.clip {{ color:#555; font-size:11px; margin-top:10px; word-break:break-all; }}
 .evgrid {{ display:flex; flex-direction:column; gap:10px; }}
-.ev {{ background:rgba(30,41,59,.42); border:1px solid rgba(148,163,184,.10);
+.ev {{ background:rgba(255,255,255,.028); border:1px solid #1c1c1c;
       border-radius:12px; padding:14px 16px; opacity:0; transform:translateY(10px);
       animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards;
       position:relative; overflow:hidden; }}
 .ev::after {{ content:""; position:absolute; inset:0; pointer-events:none;
-  background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%), rgba(148,163,184,.08), transparent 60%);
+  background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,.05), transparent 60%);
   opacity:0; transition:opacity .25s; }}
 .ev:hover::after {{ opacity:1; }}
 @keyframes rise {{ to {{ opacity:1; transform:none; }} }}
 .evhead {{ display:flex; align-items:center; gap:10px; }}
 .evicon svg {{ width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.6; }}
-.etype {{ font-weight:700; font-size:13px; color:#e2e8f0; }}
+.etype {{ font-weight:700; font-size:13px; color:#e5e5e5; }}
 .pill {{ margin-left:auto; border-radius:999px; padding:2px 10px; font-size:11px; font-weight:700; }}
-.econfnum {{ font-size:12px; color:#94a3b8; min-width:4ch; text-align:right; }}
-.confbar {{ height:4px; background:rgba(148,163,184,.12); border-radius:2px; margin:10px 0 9px; overflow:hidden; }}
+.econfnum {{ font-size:12px; color:#999; min-width:4ch; text-align:right; }}
+.confbar {{ height:4px; background:rgba(255,255,255,.08); border-radius:2px; margin:10px 0 9px; overflow:hidden; }}
 .conffill {{ height:100%; width:0; border-radius:2px; transition:width 1s cubic-bezier(.2,.7,.2,1); }}
-.evsum {{ font-size:13px; line-height:1.55; color:#cbd5e1; }}
-.frames {{ color:#475569; font-size:11px; margin-top:6px; }}
+.evsum {{ font-size:13px; line-height:1.55; color:#d9d9d9; }}
+.frames {{ color:#555; font-size:11px; margin-top:6px; }}
 .chan {{ border:1px solid; border-radius:4px; padding:0 5px; font-size:9px;
         font-weight:700; letter-spacing:.08em; opacity:.85; }}
 .signalmix {{ display:flex; gap:14px; flex-wrap:wrap; margin-top:14px;
-             font-size:11px; color:#64748b; }}
-.signalmix b {{ color:#94a3b8; margin-right:4px; }}
+             font-size:11px; color:#666; }}
+.signalmix b {{ color:#999; margin-right:4px; }}
 .sunrow {{ display:flex; justify-content:center; padding:10px 16px 14px; }}
 .sunviz {{ width:100%; max-width:460px; }}
 .frameviz {{ width:100%; max-width:620px; border-radius:8px; margin-top:10px;
-            border:1px solid rgba(148,163,184,.14); display:block; }}
-.svlabel {{ font:11px ui-monospace,monospace; fill:#94a3b8; }}
-.narrative {{ font-size:14px; line-height:1.65; color:#e2e8f0;
-             background:rgba(30,41,59,.35); border-left:3px solid var(--accent);
+            border:1px solid #1c1c1c; display:block; }}
+.svlabel {{ font:11px ui-monospace,monospace; fill:#999; }}
+.narrative {{ font-size:14px; line-height:1.65; color:#e5e5e5;
+             background:rgba(255,255,255,.03); border-left:3px solid var(--accent);
              padding:14px 18px; border-radius:0 10px 10px 0; }}
 details {{ margin-top:10px; }}
-summary {{ cursor:pointer; color:#64748b; font-size:12px; letter-spacing:.12em; text-transform:uppercase; }}
-pre {{ font-size:11px; color:#94a3b8; background:rgba(2,6,23,.6); border:1px solid rgba(148,163,184,.12);
+summary {{ cursor:pointer; color:#666; font-size:12px; letter-spacing:.12em; text-transform:uppercase; }}
+pre {{ font-size:11px; color:#999; background:rgba(0,0,0,.55); border:1px solid #1c1c1c;
       border-radius:10px; padding:14px; overflow:auto; max-height:320px; }}
-.empty {{ color:#475569; }}
-footer {{ text-align:center; color:#334155; font-size:11px; letter-spacing:.2em;
+.empty {{ color:#555; }}
+footer {{ text-align:center; color:#444; font-size:11px; letter-spacing:.2em;
          text-transform:uppercase; margin-top:34px; }}
+@media (max-width:1099px) {{
+  .layout {{ grid-template-columns:minmax(0,1fr); }}
+  .rail {{ position:static; }}
+  .card {{ padding:26px 22px; }}
+}}
 </style></head>
 <body>
 <div class="wrap">
   <div class="brand">Sundial &mdash; video provenance verification</div>
-  <div class="card" id="spot">
-    <div class="verdictrow">
-      <div class="badge" id="verdictTxt" data-final="{_e(verdict.value)}">{_e(verdict.value)}</div>
-      <div class="ringwrap">
-        <svg class="ring" viewBox="0 0 86 86"><circle class="bg" cx="43" cy="43" r="36" fill="none" stroke-width="6"/>
-        <circle class="fg" id="ringFg" cx="43" cy="43" r="36" fill="none" stroke-width="6"
-                style="stroke-dashoffset:{226.2 * (1 - conf_pct / 100):.1f}"/></svg>
-        <div class="ringnum" id="confNum" data-target="{conf_pct:.0f}">{conf_pct:.0f}%</div>
+  <div class="layout">
+    <div class="card" id="spot">
+      <div class="verdictrow">
+        <div class="badge" id="verdictTxt" data-final="{_e(verdict.value)}">{_e(verdict.value)}</div>
+        <div class="ringwrap">
+          <svg class="ring" viewBox="0 0 86 86"><circle class="bg" cx="43" cy="43" r="36" fill="none" stroke-width="6"/>
+          <circle class="fg" id="ringFg" cx="43" cy="43" r="36" fill="none" stroke-width="6"
+                  style="stroke-dashoffset:{226.2 * (1 - conf_pct / 100):.1f}"/></svg>
+          <div class="ringnum" id="confNum" data-target="{conf_pct:.0f}">{conf_pct:.0f}%</div>
+        </div>
+        <div class="confsub">adjudicator<br>confidence</div>
       </div>
-      <div class="confsub">adjudicator<br>confidence</div>
+      <h1>Claim under review</h1>
+      <div class="claim">{claim_html}</div>
+      <div class="clip">clip&nbsp;&nbsp;{_e(pack.clip)}</div>
+      <h1>Evidence — {len(evidence)} signals</h1>
+      {evidence_html}
+      <h1>Adjudicator narrative</h1>
+      <p class="narrative">{_e(adj.narrative)}</p>
+      <details><summary>Raw evidence pack</summary><pre>{raw_json}</pre></details>
     </div>
-    <h1>Claim under review</h1>
-    <div class="claim">{claim_html}</div>
-    <div class="clip">clip&nbsp;&nbsp;{_e(pack.clip)}</div>
-    <h1>Evidence — {len(evidence)} signals</h1>
-    {evidence_html}{mix_html}
-    <h1>Adjudicator narrative</h1>
-    <p class="narrative">{_e(adj.narrative)}</p>
-    <details><summary>Raw evidence pack</summary><pre>{raw_json}</pre></details>
+    {rail_html}
   </div>
   <footer>Sundial &middot; VAST Builders Challenge</footer>
 </div>
@@ -492,7 +668,7 @@ document.addEventListener("mousemove", function(e) {{
   var card = document.getElementById("spot"), r = card.getBoundingClientRect();
   card.style.setProperty("--mx", ((e.clientX - r.left) / r.width * 100) + "%");
   card.style.setProperty("--my", ((e.clientY - r.top) / r.height * 100) + "%");
-  document.querySelectorAll(".ev").forEach(function(el) {{
+  document.querySelectorAll(".ev, .railpanel").forEach(function(el) {{
     var er = el.getBoundingClientRect();
     el.style.setProperty("--mx", (e.clientX - er.left) + "px");
     el.style.setProperty("--my", (e.clientY - er.top) + "px");

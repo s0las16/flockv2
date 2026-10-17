@@ -263,6 +263,9 @@ def _match_cues(clip_cues: list) -> list[dict]:
     out = []
     for raw in clip_cues:
         text = str(raw).strip().lower()
+        # "ice cream truck" is dessert, not climate — keep the strict
+        # "ice" cue from matching it.
+        text = re.sub(r"\bice\s+cream\b", "icecream", text)
         if not text:
             continue
         keys, expected, strict = [], set(), False

@@ -319,6 +319,8 @@ def _language_hint_ccs(obs: dict, fv: dict) -> set:
     out: set = set()
     vals = _as_str_list(obs.get("sign_language"))
     vals += _as_str_list(obs.get("language"))
+    vals += _as_str_list(fv.get("sign_language"))
+    vals += _as_str_list(fv.get("language"))
     vals += _as_str_list(fv.get("languages_scripts"))
     for v in vals:
         for tok in re.split(r"[^a-z]+", v.strip().lower()):
@@ -868,8 +870,6 @@ def _restore_stubs(saved: dict) -> None:
 
 
 def _self_test() -> int:
-    import sys
-
     fv = {
         "geocode_ccs": ["GB", "IE", "FR"],
         "sign_style": {"shape": "triangular", "colors": "red on white",

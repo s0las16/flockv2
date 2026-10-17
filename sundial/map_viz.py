@@ -39,15 +39,17 @@ _CSS = """\
 .smap-v{position:absolute;inset:0;overflow:hidden;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 .smap-v:active{cursor:grabbing}
 .smap-t{position:absolute;inset:0;will-change:transform}
+.smap-t.smap-inv{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.08) saturate(.65)}
 .smap-i{position:absolute;width:256px;height:256px;pointer-events:none}
 .smap-o{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.smap-ring{position:absolute;border:1.8px dashed rgba(250,204,21,.75);background:rgba(250,204,21,.08);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none}
 .smap-m{position:absolute;width:0;height:0;pointer-events:auto}
 .smap-m u{position:absolute;transform:translate(-50%,-50%);text-decoration:none;box-sizing:border-box}
 .smap-claim u{width:13px;height:13px;border:2.5px solid #fff;border-radius:50%;box-shadow:0 0 0 1.5px rgba(2,6,23,.8)}
 .smap-pred u{width:13px;height:13px;border:2.5px solid #facc15;border-radius:50%;box-shadow:0 0 0 1.5px rgba(2,6,23,.8)}
 .smap-geo u{width:9px;height:9px;background:#38bdf8;border-radius:50%;box-shadow:0 0 0 1.5px rgba(2,6,23,.8)}
 .smap-wiki u{width:7px;height:7px;background:#94a3b8;border-radius:50%;box-shadow:0 0 0 1.5px rgba(2,6,23,.8)}
-.smap-m b{position:absolute;left:9px;top:-8px;font:10px/1.5 ui-monospace,monospace;font-weight:400;color:#e2e8f0;background:rgba(2,6,23,.78);padding:0 5px;border-radius:3px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.smap-m b{position:absolute;left:9px;top:-8px;font:10px/1.5 ui-monospace,monospace;font-weight:400;color:#e2e8f0;background:rgba(2,6,23,.82);padding:0 5px;border-radius:3px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
 .smap-m b:empty{display:none}
 .smap-b{position:absolute;border:1px solid;box-sizing:border-box;pointer-events:none}
 .smap-b i{position:absolute;inset:0;opacity:.16}
@@ -55,6 +57,12 @@ _CSS = """\
 .smap-off .smap-v{background:#0b1524;background-image:linear-gradient(rgba(148,163,184,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.05) 1px,transparent 1px);background-size:36px 36px}
 .smap-off .smap-c{display:block}
 .smap-fb{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:11px;letter-spacing:.04em}
+.smap-vec{display:none;position:absolute;inset:0;z-index:2;background:#0a0d12}
+.smap-vec .vmap{border:none!important;border-radius:0!important}
+.smap-sw{position:absolute;top:8px;right:8px;z-index:5;display:flex;gap:3px;background:rgba(5,7,12,.82);border:1px solid rgba(148,163,184,.18);border-radius:7px;padding:2px;backdrop-filter:blur(4px)}
+.smap-sw button{background:transparent;border:none;color:#94a3b8;font:10px/1.3 ui-monospace,monospace;padding:3px 6px;border-radius:5px;cursor:pointer}
+.smap-sw button:hover{color:#e2e8f0}
+.smap-sw button.on{background:rgba(255,255,255,.12);color:#fff}
 .smap-attr{position:absolute;right:6px;bottom:4px;color:rgba(148,163,184,.5);font-size:9px;pointer-events:none;z-index:4}
 .smap-hint{position:absolute;left:6px;bottom:4px;color:rgba(148,163,184,.35);font-size:9px;pointer-events:none;z-index:4}
 """
@@ -67,10 +75,41 @@ _JS = """\
       tiler = root.querySelector(".smap-t"),
       ovl = root.querySelector(".smap-o"),
       co = root.querySelector(".smap-c"),
+      attr = root.querySelector(".smap-attr"),
+      vecBox = root.querySelector(".smap-vec"),
+      sw = root.querySelector(".smap-sw"),
       fb = root.querySelector(".smap-fb");
   if (fb) fb.parentNode.removeChild(fb);
   var CFG = __CFG__, MK = __MK__, BD = __BD__;
-  var TS = 256, MINZ = 1, MAXZ = 16,
+  var PROVS = {
+    streets: {
+      name: "Streets",
+      url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      inv: true, maxz: 19,
+      attr: "© OpenStreetMap contributors (dark)"
+    },
+    esri: {
+      name: "Dark",
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      ref: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+      inv: false, maxz: 16,
+      attr: "Esri, HERE, Garmin, © OpenStreetMap contributors"
+    },
+    sat: {
+      name: "Satellite",
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      inv: false, maxz: 18,
+      attr: "Esri World Imagery, Maxar, Earthstar Geographics"
+    },
+    topo: {
+      name: "Topo",
+      url: "https://tile.opentopomap.org/{z}/{x}/{y}.png",
+      inv: true, maxz: 16,
+      attr: "© OpenTopoMap, © OpenStreetMap contributors"
+    }
+  };
+  var provKey = "streets";
+  var TS = 256, MINZ = 1, MAXZ = 18,
       Z = Math.max(MINZ, Math.min(MAXZ, CFG.z | 0)),
       ox = 0, oy = 0, vw = 0, vh = 0,
       fails = 0, off = false, cov = null, init = false, drag = null;
@@ -91,27 +130,51 @@ _JS = """\
     oy = vh >= w ? (w - vh) / 2 : Math.max(0, Math.min(w - vh, oy));
     ox = vw >= w ? (w - vw) / 2 : ((ox % w) + w) % w;
   }
+  function fmtTile(tpl, z, x, y) {
+    return tpl.replace("{z}", z).replace("{x}", x).replace("{y}", y);
+  }
   function tileFail() {
-    if (++fails >= 3 && !off) {
+    if (++fails >= 4 && !off) {
+      if (provKey === "streets") {
+        setProv("esri");
+        return;
+      }
       off = true; root.className += " smap-off"; tiler.innerHTML = "";
+      if (vecBox && vecBox.innerHTML) vecBox.style.display = "block";
     }
   }
   function drawTiles() {
-    if (off) return;
-    var n = Math.pow(2, Z),
+    if (off || provKey === "vec") return;
+    var P = PROVS[provKey] || PROVS.esri;
+    tiler.className = "smap-t" + (P.inv ? " smap-inv" : "");
+    if (attr) attr.textContent = P.attr;
+    var zUse = Math.min(Z, P.maxz || 16),
+        n = Math.pow(2, Z),
         x0 = Math.floor(ox / TS) - 1, x1 = Math.floor((ox + vw) / TS) + 1,
         y0 = Math.max(0, Math.floor(oy / TS) - 1),
         y1 = Math.min(n - 1, Math.floor((oy + vh) / TS) + 1), h = "";
     for (var ty = y0; ty <= y1; ty++)
-      for (var tx = x0; tx <= x1; tx++)
+      for (var tx = x0; tx <= x1; tx++) {
+        var wx = ((tx % n) + n) % n;
+        var u = fmtTile(P.url, zUse, wx, ty);
         h += '<img class="smap-i" draggable="false" style="left:' + tx * TS +
-             'px;top:' + ty * TS + 'px" src="https://server.arcgisonline.com' +
-             '/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer' +
-             '/tile/' + Z + '/' + ty + '/' + ((tx % n) + n) % n + '">';
+             'px;top:' + ty * TS + 'px" src="' + u + '">';
+        if (P.ref) {
+          var ru = fmtTile(P.ref, zUse, wx, ty);
+          h += '<img class="smap-i" draggable="false" style="left:' + tx * TS +
+               'px;top:' + ty * TS + 'px" src="' + ru + '">';
+        }
+      }
     tiler.innerHTML = h;
-    cov = {x0: x0, x1: x1, y0: y0, y1: y1};
+    cov = {x0: x0, x1: x1, y0: y0, y1: y1, p: provKey};
     for (var i = 0; i < tiler.children.length; i++)
       tiler.children[i].onerror = tileFail;
+  }
+  var ringEl = null;
+  if (CFG.r_km && CFG.r_km > 0) {
+    ringEl = document.createElement("div");
+    ringEl.className = "smap-ring";
+    ovl.appendChild(ringEl);
   }
   var mel = [], bel = [], i, d;
   for (i = 0; i < BD.length; i++) {
@@ -134,8 +197,8 @@ _JS = """\
       ox = c.x - vw / 2; oy = c.y - vh / 2; init = true;
     }
     clampView();
-    if (!off) {
-      if (!cov ||
+    if (!off && provKey !== "vec") {
+      if (!cov || cov.p !== provKey ||
           Math.floor(ox / TS) <= cov.x0 ||
           Math.floor((ox + vw) / TS) >= cov.x1 ||
           Math.floor(oy / TS) <= cov.y0 ||
@@ -143,6 +206,17 @@ _JS = """\
       tiler.style.transform = "translate3d(" + -ox + "px," + -oy + "px,0)";
     }
     var w = W();
+    if (ringEl && CFG.r_km) {
+      var rp = proj(CFG.rlat || CFG.lat, CFG.rlon || CFG.lon),
+          rN = proj((CFG.rlat || CFG.lat) + (CFG.r_km / 111.32), CFG.rlon || CFG.lon),
+          pxR = Math.max(14, Math.min(w / 2, Math.abs(rp.y - rN.y))),
+          rdx = rp.x - ox - vw / 2;
+      rdx -= w * Math.round(rdx / w);
+      ringEl.style.left = rdx + vw / 2 + "px";
+      ringEl.style.top = rp.y - oy + "px";
+      ringEl.style.width = (pxR * 2) + "px";
+      ringEl.style.height = (pxR * 2) + "px";
+    }
     for (i = 0; i < mel.length; i++) {
       var p = proj(MK[i].a, MK[i].o), dx = p.x - ox - vw / 2;
       dx -= w * Math.round(dx / w);
@@ -162,6 +236,26 @@ _JS = """\
         lo = ((ctr.lon + 540) % 360) - 180;
     co.textContent = ctr.lat.toFixed(4) + "\\u00b0, " + lo.toFixed(4) +
                      "\\u00b0  z" + Z;
+  }
+  function setProv(k) {
+    provKey = k; fails = 0; off = false;
+    root.className = root.className.replace(/\\bsmap-off\\b/g, "").trim();
+    if (vecBox) vecBox.style.display = (k === "vec") ? "block" : "none";
+    if (sw) {
+      var btns = sw.querySelectorAll("button");
+      for (var bi = 0; bi < btns.length; bi++)
+        btns[bi].className = (btns[bi].getAttribute("data-p") === k) ? "on" : "";
+    }
+    cov = null; layout();
+  }
+  if (sw) {
+    sw.addEventListener("click", function (e) {
+      var b = e.target.closest ? e.target.closest("button[data-p]") : e.target;
+      if (b && b.getAttribute && b.getAttribute("data-p")) {
+        e.stopPropagation();
+        setProv(b.getAttribute("data-p"));
+      }
+    });
   }
   function zoomAt(px, py, dz) {
     var nz = Math.max(MINZ, Math.min(MAXZ, Z + dz));
@@ -349,18 +443,32 @@ def map_fragment(
     width: str = "100%",
     height: str = "360px",
     zoom: int = 12,
+    radius_km: float | None = None,
+    ring_center: tuple | dict | None = None,
+    svg_fallback: str | None = None,
 ) -> str:
     """One <style> + <div> + <script> fragment — a dark interactive mini-map.
 
     `anchor` is (lat, lon) or None (world view at z=2). `markers` are
     {"lat","lon","label","kind"} with kind in claim|pred|geo|wiki;
     `bands` are {"lat_min","lat_max","lon_min","lon_max","color"} drawn
-    as translucent rects. Returns "" only on catastrophic failure.
+    as translucent rects. Includes an in-map provider switcher (Streets,
+    Dark, Satellite, Topo, and optional Vector fallback). Returns "" only
+    on catastrophic failure.
     """
     try:
         mid = "smap%d" % next(_IDS)
         clat, clon, z = _centre(anchor, zoom)
-        cfg = {"lat": round(clat, 6), "lon": round(clon, 6), "z": z}
+        cfg: dict[str, Any] = {"lat": round(clat, 6), "lon": round(clon, 6), "z": z}
+        try:
+            if radius_km and float(radius_km) > 0:
+                cfg["r_km"] = round(float(radius_km), 1)
+                if ring_center is not None:
+                    rlat, rlon, _ = _centre(ring_center, z)
+                    cfg["rlat"] = round(rlat, 6)
+                    cfg["rlon"] = round(rlon, 6)
+        except Exception:
+            pass
         coords = "%.4f\u00b0, %.4f\u00b0  z%d" % (clat, clon, z)
         js = (
             _JS.replace("__ID__", mid)
@@ -369,6 +477,20 @@ def map_fragment(
             .replace("__BD__", _js(_bands(bands)))
         )
         w, h = _dim(width, "100%"), _dim(height, "360px")
+        has_vec = isinstance(svg_fallback, str) and "<svg" in svg_fallback
+        vec_btn = ('<button type="button" data-p="vec">Vector</button>'
+                   if has_vec else "")
+        vec_div = ('<div class="smap-vec">' + svg_fallback + "</div>"
+                   if has_vec else '<div class="smap-vec"></div>')
+        sw_html = (
+            '<div class="smap-sw">'
+            '<button type="button" data-p="streets" class="on">Streets</button>'
+            '<button type="button" data-p="esri">Dark</button>'
+            '<button type="button" data-p="sat">Satellite</button>'
+            '<button type="button" data-p="topo">Topo</button>'
+            + vec_btn +
+            "</div>"
+        )
         return (
             "<style>" + _CSS + "</style>"
             '<div id="' + mid + '" class="smap" style="width:' + w +
@@ -380,7 +502,9 @@ def map_fragment(
             '<div class="smap-fb">' + _e(coords) + "</div>"
             '<div class="smap-attr">' + _e(_ATTR) + "</div>"
             '<div class="smap-hint">drag &middot; scroll to zoom</div>'
-            "</div></div>"
+            "</div>"
+            + vec_div + sw_html +
+            "</div>"
             "<script>" + js + "</script>"
         )
     except Exception:

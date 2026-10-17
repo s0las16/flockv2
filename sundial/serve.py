@@ -476,42 +476,44 @@ def _report_extra(adj) -> dict:
             extra["loc_summary"] = summ
             center = summ.get("anchor") or summ.get("predicted")
             placeable = bool(center or summ.get("markers"))
-            radius = (summ.get("predicted") or {}).get("radius_km")
+            radius = (summ.get("predicted") or {}).get("radius_km") or (
+                summ.get("predicted") or {}).get("r_km")
             zoom = 12 if summ.get("anchor") else max(
                 2, min(10, round(8 - math.log2(max(radius or 300, 50) / 300))))
-            # Local vector map is the primary payload. The module is being
-            # written concurrently, so accept either convenience API:
-            # vec_fragment(summ) or fragment_for(adj).
+            # Generate the offline vector SVG first so it can serve both as an
+            # in-map "Vector" tab / offline fallback inside map_viz AND as a
+            # standalone fallback if map_viz fails.
+            svg_frag = ""
             if placeable:
                 try:
                     from . import vec_map
 
-                    frag = ""
                     for name, arg in (("vec_fragment", summ),
                                       ("fragment_for", adj)):
                         func = getattr(vec_map, name, None)
                         if callable(func):
                             try:
-                                frag = func(arg) or ""
+                                svg_frag = func(arg) or ""
                             except Exception:
-                                frag = ""
-                        if frag:
+                                svg_frag = ""
+                        if svg_frag:
                             break
-                    if frag:
-                        extra["map_svg"] = frag
                 except Exception:
-                    pass
-            if placeable and "map_svg" not in extra:
-                try:  # interactive slippy map second
+                    svg_frag = ""
+                try:  # interactive multi-provider slippy map primary
                     from . import map_viz
 
                     frag = map_viz.map_fragment(
                         center, markers=summ.get("markers") or [],
-                        bands=summ.get("bands") or [], zoom=zoom)
+                        bands=summ.get("bands") or [], zoom=zoom,
+                        radius_km=radius, ring_center=summ.get("predicted"),
+                        svg_fallback=svg_frag)
                     if frag:
                         extra["map_fragment"] = frag
                 except Exception:
                     pass
+                if "map_fragment" not in extra and svg_frag:
+                    extra["map_svg"] = svg_frag
             if placeable and "map_svg" not in extra and "map_fragment" not in extra:
                 try:  # static PNG last resort (needs PIL + tile network)
                     from . import map_tiles

@@ -169,6 +169,12 @@ def _distill(value: Any, depth: int = 0) -> str:
     if depth > 4 or value is None:
         return ""
     if isinstance(value, dict):
+        if "result" in value and ("ok" in value or "tool" in value or "ms" in value):
+            inner = _distill(value.get("result"), depth + 1)
+            if inner:
+                return inner
+            if value.get("error"):
+                return _clip(value.get("error"))
         ll = _fmt_ll(
             value.get("lat", value.get("latitude")),
             value.get("lon", value.get("lng", value.get("longitude"))),

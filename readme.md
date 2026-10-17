@@ -10,8 +10,12 @@ Built at the Real-Time Video Agents Hack — VAST Builders Challenge, London.
 clip → frames (ffmpeg)
      ├─ YOLO11: objects + reference heights
      ├─ Cosmos Reason: shadow tip/base points · sign text · weather & lighting
-     │                · clock-overlay read (cropped, upscaled strip)
+     │                · clock-overlay read · OSINT scene features · place guess
      ├─ pysolar: invert sun position → possible UTC time window
+     ├─ OSINT match: feature cues → candidate countries → weighted scoring
+     │   (driving side · language · plates · markings · sign style · biome ·
+     │    dial codes/ccTLDs · landmarks → Nominatim · Overpass POIs ·
+     │    Wikipedia geosearch · climate normals · hemisphere tell)
      ├─ Nominatim/OSM: geocode extracted text → location candidates
      ├─ Open-Meteo archive: weather at claimed time/place → contradiction flag
      └─ clock: burned-in timestamp overlay vs claimed time
@@ -44,6 +48,8 @@ agent says so — it never forces a verdict.
 | Corpus dashcam (I-24, real 05:52 UTC) | 15:00 | **CONTRADICTED** | solar window 16:36–18:38 UTC · weather 99% cloud vs clear |
 | Corpus dashcam | ~noon local (truth) | **SUPPORTED** | solar 49.5° expected vs ~51° observed · weather consistent |
 | Stamped webcam (real 12:30 overlay) | 12:30 (truth) | **SUPPORTED** | solar 25.0° vs 25.7° expected · weather consistent |
+| Husum square, stamped (Germany) | Husum, Germany | **SUPPORTED** | osint ranks DE #1 · geoguess→DE · wiki 'Husum' 2.1km · temperate biome |
+| Husum square, stamped | Lyon, France (lie) | **CONTRADICTED** | geoguess converged on DE vs FR claim · generic EU cues couldn't split |
 | Stamped webcam | 08:00 (lie) | **INSUFFICIENT** | honest — estimate unplaceable |
 | Busy square webcam, 3 frames | 12:30 | **INSUFFICIENT** | honest — 25px people, overlapping shadows |
 
@@ -83,7 +89,8 @@ python3 -m sundial.cli \
     --out verdict.html
 ```
 
-`--claim-place` accepts a place name (geocoded) or `lat,lon`.
+`--claim-place` accepts a place name (geocoded) or `lat,lon`. Or skip the
+flags and use natural language: `--claim "filmed Tuesday 3pm in London"`.
 `python3 -m sundial.cli --demo` runs the adjudicator on a synthetic pack
 with no dependencies — useful for smoke tests.
 

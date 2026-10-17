@@ -5,5 +5,7 @@ venv/
 .env
 *.mp4
 *.mov
+*.pt
+.sundial_frames/
 .DS_Store
 .ipynb_checkpoints/

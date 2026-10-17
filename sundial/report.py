@@ -121,7 +121,7 @@ def _sun_viz(ev: "Evidence") -> str:
         y = horizon_y - (el / max_el) * (horizon_y - 24)
         return x, y
 
-    def label(x: float, text: str, dy: float, fill: str = "#94a3b8") -> str:
+    def label(x: float, text: str, dy: float, fill: str = "#9a9a9a") -> str:
         # flip to left-anchored text near the right edge so labels don't clip
         if x > W - 140:
             return (f'<text x="{x - 12:.0f}" y="{dy:.0f}" class="svlabel" '
@@ -132,8 +132,8 @@ def _sun_viz(ev: "Evidence") -> str:
     ox, oy = xy(e_az if o_az is None else o_az, max(o_el, 1.5))
     parts = [
         f'<svg class="sunviz" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">',
-        f'<path d="M30 {horizon_y} A 200 200 0 0 1 {W-30} {horizon_y}" fill="none" stroke="#334155" stroke-dasharray="4 5" stroke-width="1"/>',
-        f'<line x1="14" y1="{horizon_y}" x2="{W-14}" y2="{horizon_y}" stroke="#475569" stroke-width="1.4"/>',
+        f'<path d="M30 {horizon_y} A 200 200 0 0 1 {W-30} {horizon_y}" fill="none" stroke="#2a2a2e" stroke-dasharray="4 5" stroke-width="1"/>',
+        f'<line x1="14" y1="{horizon_y}" x2="{W-14}" y2="{horizon_y}" stroke="#3d3d42" stroke-width="1.4"/>',
         f'<text x="18" y="{horizon_y+13}" class="svlabel">horizon</text>',
     ]
     if e_el < 0:  # expected sun under the horizon — the night-lie case
